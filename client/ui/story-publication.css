@@ -7,6 +7,61 @@
 .yu-generation-models{margin:12px 0;color:#758468;font-size:12px;line-height:1.7;overflow-wrap:anywhere}.yu-generation-models p{margin:4px 0}
 .yu-publication-summary p{margin:0;min-width:0;flex:1 1 120px}
 .yu-publication-work{margin:16px 0 8px;font-size:16px;font-weight:500;overflow-wrap:anywhere}
+/* 导出按用途分组，打印所需的横图操作和反馈紧接打印格式。 */
+.yu-download-formats{
+ --download-text:#36523b;
+ --download-meta:#5b6d53;
+ --download-rule:#dce2d3;
+ --download-surface:#fffdf6;
+ --download-hover:#eef2e6;
+ --download-icon:#eaf0e1;
+ --download-accent:#496647;
+ display:grid;gap:14px;text-align:left;color:var(--download-text)
+}
+.yu-download-formats>section>h3,.yu-download-heading h3{margin:0;font:inherit;font-size:var(--yu-meta-size);font-weight:600;color:var(--download-meta)}
+.yu-download-formats>section>h3,.yu-download-heading{margin-bottom:5px}
+.yu-download-heading{display:flex;align-items:baseline;justify-content:space-between;gap:4px 12px;flex-wrap:wrap}
+.yu-download-heading>span{font-size:var(--yu-meta-size);color:var(--download-meta);margin-inline-start:auto}
+.yu-download-print-feedback{margin-bottom:8px;scroll-margin-block:8px}
+.yu-download-list{display:grid;overflow:hidden;border:1px solid var(--download-rule);border-radius:10px;background:var(--download-surface)}
+.yu-download-option{
+ display:grid;grid-template-columns:32px minmax(0,1fr) 16px;align-items:center;gap:10px;min-height:50px;
+ padding:6px 11px;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer
+}
+.yu-download-option~.yu-download-option{border-top:1px solid var(--download-rule)}
+.yu-download-option:hover:not(:disabled){background:var(--download-hover)}
+.yu-download-option:focus-visible{position:relative;outline:2px solid var(--download-accent);outline-offset:-3px;border-radius:6px}
+.yu-download-option:disabled{opacity:.55;cursor:default}
+.yu-download-icon{display:grid;place-items:center;width:32px;height:30px;border-radius:6px;background:var(--download-icon);color:var(--download-accent)}
+.yu-download-option>svg{color:var(--download-accent)}
+.yu-download-copy{display:grid;gap:1px;line-height:1.35;overflow-wrap:anywhere}
+.yu-download-copy strong{font-size:14px;font-weight:600}
+.yu-download-copy small{font-size:var(--yu-meta-size);color:var(--download-meta)}
+.yu-download-list .yu-export-credit-error{margin:0;padding:7px 11px;border-top:1px solid var(--download-rule)}
+.yu-download-formats ol.yu-download-recovery{
+ --yu-meta:var(--download-meta);margin:0;border:1px solid var(--download-rule);border-radius:10px;background:var(--download-hover)
+}
+.yu-download-recovery>li:has(.production-stage-heading .production-stage-actions){--production-icon-top:18px}
+.yu-download-recovery .production-stage-copy,.yu-download-recovery .yu-recovery-status,.yu-download-recovery .yu-recovery-detail{color:var(--download-meta)}
+.yu-download-recovery .production-stage-heading{align-items:center;min-height:24px}
+.yu-download-recovery .production-stage-heading>strong{font-size:13px;font-weight:600;color:var(--download-text)}
+.yu-download-recovery .production-stage-icon{border-color:var(--download-rule)}
+.yu-download-recovery .production-stage-actions .story-flow-link{font-size:13px;font-weight:600}
+.yu-download-recovery .production-stage-notice:not(:empty){display:flex;flex-wrap:wrap;align-items:center;gap:0 10px}
+.yu-download-recovery .production-stage-notice .yu-recovery-detail{flex-basis:100%}
+.yu-download-recovery .production-stage-notice .yu-batch-error{flex:1 1 240px;margin:0;padding:6px 9px}
+.yu-download-recovery .production-stage-notice .production-stage-actions{margin-inline-start:auto}
+.yu-download-error,.yu-export-status{margin:0;font-size:var(--yu-meta-size);line-height:1.65;color:var(--download-meta);overflow-wrap:anywhere}
+.yu-export-status:empty{display:none}
+.yu-story-downloads{margin-top:14px}
+.yu-story-downloads>.yu-publication-summary{margin-top:13px;padding:4px 0 0;border-top:1px solid #dce2d3}
+.yu-ending .yu-download-formats{
+ --download-text:#e3ead7;--download-meta:#becbb2;--download-rule:#aab99e42;--download-surface:#ffffff04;
+ --download-hover:#b5c6a518;--download-icon:#b5c6a525;--download-accent:#c5d3b8
+}
+.yu-ending .yu-download-option:focus-visible{outline-offset:-3px}
+.yu-ending .yu-download-recovery>li{background:none;border-color:transparent;color:var(--download-text)}
+.yu-ending .yu-download-recovery>li .production-stage-icon{background:var(--download-icon);border-color:var(--download-rule)}
 .yu-publication-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 16px;margin:12px 0 8px}
 .yu-publication-heading .yu-publication-work{flex:1;min-width:120px;margin:0}
 .yu-publication-heading button{min-height:44px;flex:none}

@@ -18,7 +18,7 @@ export function ProductionTimelineRow({step,number,layout='vertical',moving=fals
   <div className="production-stage-copy">
    <div className="production-stage-heading">
     <strong>{name}</strong>
-    {!done&&<span className="production-stage-state">{stateLabel}</span>}
+    {!done&&stateLabel&&<span className="production-stage-state">{stateLabel}</span>}
     {layout==='vertical'&&(navigation||onHistory)&&<div className="production-stage-actions">
      {navigation}{onHistory&&<StoryFlowAction onClick={onHistory}>审核记录</StoryFlowAction>}
     </div>}

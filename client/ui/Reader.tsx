@@ -25,14 +25,14 @@ import {offersProductionAction} from '@/lib/production-lifecycle';
 
 import {pruneReadingCaches,type LibraryInventory} from '../reading-cache.ts';
 import StoryExportControl from './StoryExportControl';
-import {storyLandscapeRoute} from './StoryLandscapeStep';
-import StoryPublicationEditor,{StoryDownloads,StoryPublicationDetails,StoryPublicationDefaults} from './StoryPublication';
+import StoryLandscapeStep,{storyLandscapeRoute} from './StoryLandscapeStep';
+import StoryPublicationEditor,{StoryDownloadFormats,StoryDownloads,StoryPublicationDetails,StoryPublicationDefaults} from './StoryPublication';
 import {generationImageModelForPage,generationModelNames} from '@/lib/story-publication';
 import ProviderSettings,{ProviderRuntimeSummary} from './ProviderSettings';
 import type {ProviderSettingsView} from '@/lib/provider-settings';
 import {useBookReference} from '../useBookReference';
 import {cloneElement, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode} from 'react';
-import {ArrowLeft, ArrowRight, Maximize2, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Compass, Feather, Leaf, List, Moon, Play, RotateCcw, ImageDown, BookOpenText, Settings2, Sparkles, Star, Settings, X, Loader2, FileDown, FileArchive, RefreshCw, Trash2, Search} from 'lucide-react';
+import {ArrowLeft, ArrowRight, Maximize2, Bookmark, BookOpen, Check, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Compass, Download, Feather, Image as ImageIcon, Leaf, List, Moon, Play, Printer, RotateCcw, BookOpenText, Settings2, Sparkles, Star, Settings, X, Loader2, FileText, FileArchive, RefreshCw, Trash2, Search} from 'lucide-react';
 import {randomId, request} from './shared';
 import type {Story} from '@/lib/content';
 import type {GeneratedStory,Selection,SessionView} from '@/lib/reader-model';
@@ -88,20 +88,30 @@ import './compact.css';
 import StoryFlowAction from './StoryFlowAction';
 import {shelfGenerationStatus} from '@/lib/shelf-generation';
 import {assertLandscapePdfReady} from '@/lib/reader-pdf';
+import {ResponseError} from '@/lib/reader-request';
+import {z} from 'zod';
 
 type Book = ReaderBook;
 type Progress = {storyId:string; page:number; saved?:number; updatedAt?:string|null};
 const exportOptions={
- pdf:{label:'竖版 PDF',description:'逐幅阅读',Icon:FileDown},
- 'pdf-landscape':{label:'横版 PDF',description:'7×5 英寸试印',Icon:FileDown},
- 'pdf-letter':{label:'Letter 双面 PDF',description:'上下两幅',Icon:FileDown},
- png:{label:'下载 PNG',description:'一页总览',Icon:ImageDown},
- zip:{label:'下载 ZIP',description:'原文与完整提示词',Icon:FileArchive},
+ pdf:{label:'竖版 PDF',description:'每页一幅，逐页阅读',Icon:FileText},
+ 'pdf-landscape':{label:'横版 PDF',description:'7 × 5 英寸，每页一幅',Icon:Printer},
+ 'pdf-letter':{label:'Letter 双面 PDF',description:'每面上下两幅',Icon:Printer},
+ png:{label:'PNG 图片',description:'全部画幅合成一页',Icon:ImageIcon},
+ zip:{label:'ZIP 压缩包',description:'原文、插图和制作提示词',Icon:FileArchive},
 };
 type ExportFormat=keyof typeof exportOptions;
 type PrintPdfFormat='pdf-landscape'|'pdf-letter';
+const readingExports=['pdf','png','zip'] as const;
+const printExports=['pdf-landscape','pdf-letter'] as const;
+const missingLandscapeSchema=z.object({id:z.string().uuid(),ready:z.number().int().nonnegative(),total:z.number().int().positive(),missingPages:z.array(z.number().int().positive()).min(1)});
+type PrintExportError={storyId:string;message:string;missing?:z.infer<typeof missingLandscapeSchema>};
 type LandscapeCover={index:number;images:readonly string[]};
 type ExportSource={id:string;story:Story|null;images?:string[]};
+function printExportFailure(storyId:string,error:unknown):PrintExportError{
+ const missing=error instanceof ResponseError&&error.status===409?missingLandscapeSchema.safeParse(error.body).data:undefined;
+ return {storyId,message:error instanceof Error?error.message:'导出失败，请保持联网后重试。',missing};
+}
 async function readExportSource(target:Story){
  const {story}:ExportSource=isGenerated(target)?await request('reader/sessions/'+target.id+'/export'):{id:target.id,story:target};
  if(!story?.pages.length)throw Error('当前版本尚未保存分镜。');
@@ -205,8 +215,8 @@ export default function Reader(){
  const favoriteLock=useRef(false);
  const deleted=useRef(new Set<string>());
  const [exporting,setExporting]=useState<ExportFormat|null>(null),[exportProgress,setExportProgress]=useState(''),[downloadUrl,setDownloadUrl]=useState('');
- const [landscapeCover,setLandscapeCover]=useState<{format:PrintPdfFormat;story:Story;cover:LandscapeCover}|null>(null);
- const [printExportError,setPrintExportError]=useState<{storyId:string;message:string}|null>(null);
+ const [landscapeCover,setLandscapeCover]=useState<{format:PrintPdfFormat;story:Story;cover:LandscapeCover;targetId:string}|null>(null);
+ const [printExportError,setPrintExportError]=useState<PrintExportError|null>(null);
  useEffect(()=>()=>{if(downloadUrl)URL.revokeObjectURL(downloadUrl);},[downloadUrl]);
  const exportLock=useRef(false),reselectLock=useRef(false);
  const [drag]=useState(createDragOffset),setDrag=drag.set,[lastReadId,setLastReadId]=useState('');
@@ -440,11 +450,11 @@ export default function Reader(){
   if(exportLock.current)return;
   exportLock.current=true;setExporting(format);setExportProgress('正在准备 '+exportOptions[format].label);
   const print=format==='pdf-landscape'||format==='pdf-letter';
-  setPrintExportError(null);
   try{
    if(print&&!cover){
     const {story,images}=await readPrintExportSource(output,format);
-    setLandscapeCover({format,story,cover:{index:0,images}});return;
+    setPrintExportError(error=>error?.storyId===output.id?null:error);
+    setLandscapeCover({format,story,cover:{index:0,images},targetId:output.id});return;
    }
    if(format==='zip'){
     const {downloadStoryZip}=await import('@/lib/reader-zip');
@@ -462,7 +472,7 @@ export default function Reader(){
    }
   }catch(e){
    const message=e instanceof Error?e.message:'导出失败，请保持联网后重试。';
-   if(print)setPrintExportError({storyId:output.id,message});
+   if(print)setPrintExportError(printExportFailure(output.id,e));
    else notify(message);
   }
   finally{exportLock.current=false;setExporting(null);setExportProgress('');}
@@ -565,17 +575,22 @@ export default function Reader(){
   finally{restoreLock.current=false;setRestoring('');}
  }
  function askDelete(id:string,title:string){setDeleteError('');setDeleteTarget({id,title});}
- function exportControl(format:ExportFormat,className:string,target:Story|null=story){
+ function exportControl(format:ExportFormat,target:Story){
   const {label,description,Icon}=exportOptions[format];
   const busy=exporting===format;
-  const content=<>{busy?<Loader2 size={20} className="spin"/>:<Icon size={20}/>}<span>{busy?(format==='zip'?'打包中…':'导出中…'):label}<small>{description}</small></span></>;
-  if(!target)return <button key={format} type="button" className={className} disabled>{content}</button>;
-  if(format==='pdf-landscape'||format==='pdf-letter')return <button key={target.id+':'+format} type="button" className={className} aria-busy={busy} disabled={!!exporting} onClick={()=>void exportStory(format,target)}>{content}</button>;
-  return <StoryExportControl key={target.id+':'+format} loadStory={async()=>(await readExportSource(target)).story} format={format==='zip'||format==='png'?format:'pdf'} className={className} busy={busy} disabled={!!exporting} onExport={output=>exportStory(format,output)} onEdit={isGenerated(target)?setPublicationTarget:undefined}>{content}</StoryExportControl>;
+  const print=format==='pdf-landscape'||format==='pdf-letter',Action=print?ChevronRight:Download;
+  const content=<><span className="yu-download-icon" aria-hidden="true"><Icon size={17}/></span><span className="yu-download-copy"><strong>{busy?(format==='zip'?'打包中…':'导出中…'):label}</strong><small>{description}</small></span>{busy?<Loader2 size={16} className="spin" aria-hidden="true"/>:<Action size={16} aria-hidden="true"/>}</>;
+  if(print)return <button key={target.id+':'+format} type="button" className="yu-download-option" aria-busy={busy} disabled={!!exporting} onClick={()=>void exportStory(format,target)}>{content}</button>;
+  return <StoryExportControl key={target.id+':'+format} loadStory={async()=>(await readExportSource(target)).story} format={format} className="yu-download-option" busy={busy} disabled={!!exporting} onExport={output=>exportStory(format,output)} onEdit={isGenerated(target)?setPublicationTarget:undefined}>{content}</StoryExportControl>;
  }
- function exportStatus(showReadiness=true){
-  if(!story)return null;
-  return <p className="yu-export-status" role="status">{exportProgress||(printExportError?.storyId===story.id?printExportError.message:null)||(showReadiness&&story.pages.some(p=>!p.image)?`已保存竖图 ${story.pages.filter(p=>p.image).length} / ${story.pages.length} 幅。`:'')}</p>;
+ function downloadFormats(target:Story,tone?:'dark'){
+  const error=printExportError?.storyId===target.id?printExportError:null,missing=error?.missing;
+  const portraits=target.pages.filter(page=>page.image).length;
+  return <StoryDownloadFormats downloads={readingExports.map(format=>exportControl(format,target))} printDownloads={printExports.map(format=>exportControl(format,target))} revealPrintRecovery={!!missing}
+   exportStatus={exportProgress||(portraits<target.pages.length?`已保存竖图 ${portraits} / ${target.pages.length} 幅。`:'')}
+   printStatus={missing?<ol className="production-timeline yu-download-recovery" aria-label="打印所需横图">
+    <StoryLandscapeStep key={missing.id} storyId={missing.id} savedPages={JSON.stringify(target.pages.map(page=>[page.image,page.prompt]))} exportMissing={missing} tone={tone} onActivityChange={()=>void gen.refreshLibrary().catch(()=>{})}/>
+   </ol>:error?<p className="yu-download-error" role="alert">{error.message}</p>:null}/>;
  }
  // Session lists contain only the newest submission; cached artwork must not resurrect older editions.
  const shelfSessionsById=new Map(gen.sessions.map(session=>[session.id,session]));
@@ -713,7 +728,7 @@ export default function Reader(){
   <ProviderRuntimeSummary runtime={providerRuntime}/>
  </section>;
  // 停靠在书架右栏时阅读是书架主区里的一节（section，不带 data-main），其余时候是页面主区
- const readerEnding=story&&<StoryEndingSurface surfaceRef={endingRef} readerRef={readerRef} onSwipeBack={()=>{suppressEndingSwipeClick.current=true;turn(-1);}} onDrag={setDrag} drag={drag}><div className="yu-ending-mark"><Leaf size={32} strokeWidth={1.3}/></div><p className="yu-kicker">故事到这里，余味留给你</p><h1>{story.reflection}</h1>{!!story.summary.trim()&&<section className="yu-ending-summary" aria-label="故事梗概"><h2>故事梗概</h2><p>{story.summary}</p></section>}<div className="yu-end-line"/><p>有些故事的最后一页，<br/>其实在你的生活里。</p><button className="yu-primary" onClick={()=>open(story,true)}><RotateCcw size={18}/>从头再看<ArrowRight size={19}/></button><div className="yu-ending-navigation"><button onClick={()=>turn(-1)}><ChevronLeft size={17}/>返回上一幅</button><button onClick={()=>{listScroll.current=null;home();setTab('shelf');window.scrollTo({top:0,behavior:'instant'});}}><BookOpen size={16}/>书架</button><button onClick={()=>{home();choose();}}><Sparkles size={16}/>开启下一篇</button></div><section className="yu-ending-downloads" aria-label="下载故事"><h2>把故事带走</h2><div className="yu-ending-formats">{(Object.keys(exportOptions) as ExportFormat[]).map(format=>exportControl(format,format==='zip'?'yu-ending-download yu-download-zip':'yu-ending-download'))}</div>{exportStatus()}</section><StoryPublicationDetails story={story}/><p className="yu-end-source"><StoryFlowAction tone="dark" onClick={()=>setSource(true)}>读一读原文<ChevronRight size={13}/></StoryFlowAction></p></StoryEndingSurface>;
+ const readerEnding=story&&<StoryEndingSurface surfaceRef={endingRef} readerRef={readerRef} onSwipeBack={()=>{suppressEndingSwipeClick.current=true;turn(-1);}} onDrag={setDrag} drag={drag}><div className="yu-ending-mark"><Leaf size={32} strokeWidth={1.3}/></div><p className="yu-kicker">故事到这里，余味留给你</p><h1>{story.reflection}</h1>{!!story.summary.trim()&&<section className="yu-ending-summary" aria-label="故事梗概"><h2>故事梗概</h2><p>{story.summary}</p></section>}<div className="yu-end-line"/><p>有些故事的最后一页，<br/>其实在你的生活里。</p><button className="yu-primary" onClick={()=>open(story,true)}><RotateCcw size={18}/>从头再看<ArrowRight size={19}/></button><div className="yu-ending-navigation"><button onClick={()=>turn(-1)}><ChevronLeft size={17}/>返回上一幅</button><button onClick={()=>{listScroll.current=null;home();setTab('shelf');window.scrollTo({top:0,behavior:'instant'});}}><BookOpen size={16}/>书架</button><button onClick={()=>{home();choose();}}><Sparkles size={16}/>开启下一篇</button></div><section className="yu-ending-downloads" aria-label="下载故事"><h2>把故事带走</h2>{downloadFormats(story,'dark')}</section><StoryPublicationDetails story={story}/><p className="yu-end-source"><StoryFlowAction tone="dark" onClick={()=>setSource(true)}>读一读原文<ChevronRight size={13}/></StoryFlowAction></p></StoryEndingSurface>;
  const ReaderTag=dockedView?'section':'main';
  const readerBook=story?bookName(story):'';
  const referenceTitle=bookReference.busy?'正在保存参考图…'
@@ -866,8 +881,9 @@ export default function Reader(){
  {presentation&&<Sheet title="作品与导出" onClose={()=>{setPresentation(null);setPrintExportError(null);}}>
   <p className="yu-publication-work">{presentation.session?.story?.title||presentation.title}</p>
   {presentation.error?<div role="alert"><p>{presentation.error}</p><StoryFlowAction onClick={()=>{setPresentation({...presentation,error:undefined});setPresentationRead(value=>value+1);}}>重试打开</StoryFlowAction></div>
-   :presentation.session?.story?<StoryDownloads story={presentation.session.story} downloads={(Object.keys(exportOptions) as ExportFormat[]).map(format=>exportControl(format,'yu-settings-download',presentation.session!.story))}
-    exportStatus={exportProgress||(printExportError?.storyId===presentation.session.story.id?printExportError.message:'')} exporting={!!exporting} onPublicationEdit={()=>setPublicationTarget(presentation.session!.story)}/>
+   :presentation.session?.story?<StoryDownloads story={presentation.session.story} exporting={!!exporting} onPublicationEdit={()=>setPublicationTarget(presentation.session!.story)}>
+    {downloadFormats(presentation.session.story)}
+   </StoryDownloads>
    :<p role="status">{presentation.session?'当前版本尚未保存分镜。':'正在打开作品…'}</p>}
  </Sheet>}
  {publicationTarget&&<StoryPublicationEditor key={publicationTarget.id} story={publicationTarget} onClose={()=>setPublicationTarget(null)} onSave={async(value,expected)=>{
@@ -887,9 +903,14 @@ export default function Reader(){
    </fieldset>
    <div className="yu-export-confirmation-actions">
     <StoryExportControl key={landscapeCover.story.id} loadStory={async()=>{
-     const latest=await readPrintExportSource(landscapeCover.story,landscapeCover.format);
+     const latest=await readPrintExportSource(landscapeCover.story,landscapeCover.format).catch(error=>{
+      const failure=printExportFailure(landscapeCover.targetId,error);
+      if(!failure.missing)throw error;
+      setPrintExportError(failure);setLandscapeCover(null);return null;
+     });
+     if(!latest)return null;
      if(latest.story.id!==landscapeCover.story.id||JSON.stringify(landscapeCover.cover.images)!==JSON.stringify(latest.images)){
-      setLandscapeCover({format:landscapeCover.format,story:latest.story,cover:{index:0,images:latest.images}});
+      setLandscapeCover({...landscapeCover,story:latest.story,cover:{index:0,images:latest.images}});
       notify('打印图稿已更新，请重新选择封面。');return null;
      }
      return latest.story;

@@ -12,14 +12,15 @@ const printServiceMessages={...productionServiceMessages,'snapshot-unavailable':
 
 export function storyLandscapeRoute(id:string){return `reader/sessions/${encodeURIComponent(id)}/landscape`;}
 
-type Props={storyId:string;savedPages:string;onActivityChange?:()=>void};
-export default function StoryLandscapeStep({storyId,savedPages,onActivityChange}:Props){
+type Props={storyId:string;savedPages:string;onActivityChange?:()=>void;exportMissing?:{total:number;ready:number;missingPages:number[]};tone?:'dark'};
+export default function StoryLandscapeStep({storyId,savedPages,onActivityChange,exportMissing,tone}:Props){
  const path=storyLandscapeRoute(storyId);
  const [status,setStatus]=useState<LandscapeStatus|null>(null);
  const [refresh,setRefresh]=useState(0);
  const [submitting,setSubmitting]=useState(false);
  const [readError,setReadError]=useState('');
  const [actionError,setActionError]=useState('');
+ const submitLock=useRef(false);
  const wasRunning=useRef(false);
  const activityChanged=useEffectEvent(()=>onActivityChange?.());
  const pending=status?.state==='running';
@@ -44,35 +45,38 @@ export default function StoryLandscapeStep({storyId,savedPages,onActivityChange}
   return()=>{live=false;clearTimeout(timer);};
  },[path,refresh,savedPages]);
  async function updatePrint(id:string,command:LandscapeCommand){
-  if(submitting||readError)return;
+  if(submitLock.current||readError)return;
+  submitLock.current=true;
   setSubmitting(true);setActionError('');
   try{
    const next:LandscapeStatus=await request(storyLandscapeRoute(id),'POST',command);
    if(id===storyId)setStatus(next);
   }catch(error){setActionError(error instanceof Error?error.message:'暂时无法更新横图。');}
-  finally{setSubmitting(false);setRefresh(value=>value+1);}
+  finally{submitLock.current=false;setSubmitting(false);setRefresh(value=>value+1);}
  }
  function actions(id:string,work:EarlierLandscapeWork|LandscapeStatus){
-  const link=(label:string,command:LandscapeCommand)=><StoryFlowAction disabled={submitting} onClick={()=>void updatePrint(id,command)}>{label}</StoryFlowAction>;
+  const link=(label:string,command:LandscapeCommand)=><StoryFlowAction tone={tone} disabled={submitting} onClick={()=>void updatePrint(id,command)}>{label}</StoryFlowAction>;
   const earlier=id!==storyId;
   const earlierPages='matchesSavedPages' in work&&work.matchesSavedPages===false;
-  const startLabel=earlier?'继续绘制旧版横图':earlierPages?'按当前分镜绘制横图':work.state==='completed'?'另绘一套横版插图':'生成横版插图';
+  const startLabel=earlier?'继续绘制旧版横图':exportMissing?'开始制作横图':earlierPages?'按当前分镜绘制横图':work.state==='completed'?'另绘一套横版插图':'生成横版插图';
   return <>
-   {(work.readUnavailable||work.referenceError)&&<StoryFlowAction onClick={()=>setRefresh(value=>value+1)}>{work.referenceError?'重新核对参考竖图':'重新读取进度'}</StoryFlowAction>}
+   {(work.readUnavailable||work.referenceError)&&<StoryFlowAction tone={tone} onClick={()=>setRefresh(value=>value+1)}>{work.referenceError?'重新核对参考竖图':'重新读取进度'}</StoryFlowAction>}
    {work.modelToken&&work.state!=='completed'&&link('应用当前横图模型',{modelToken:work.modelToken})}
    {work.controlAction&&(work.controlAction==='pause'||!work.service||work.service==='available')&&
     link(work.controlAction==='pause'?(earlier?'暂停':'暂停生成'):(earlier?'恢复':'恢复生成'),{control:work.controlAction,printId:work.printId})}
    {work.retryToken&&link(earlierPages?'重试先前分镜的未完成画幅':'重试未完成画幅',{retryToken:work.retryToken})}
-   {work.startToken&&(!work.retryToken||earlierPages)&&link(startLabel,{startToken:work.startToken})}
+   {work.startToken&&(!work.retryToken||earlierPages)&&(!exportMissing||work.state!=='completed'||earlierPages)&&link(startLabel,{startToken:work.startToken})}
   </>;
  }
  const manual=status?.state==='running'&&status.control&&status.control!=='active';
  const partial=status?.state==='partial';
  const serviceBlocked=status&&status.state!=='completed'&&status.service&&status.service!=='available'?status.service:null;
  const canSubmit=status?.available&&!!(status.startToken||status.retryToken);
+ const showExportMissing=exportMissing&&(!status||status.state==='idle'||status.matchesSavedPages===false);
+ const startInHeading=!!exportMissing&&status?.state==='idle'&&!!status.startToken&&!readError;
  // 可以启动或重试却没有令牌（旧版本、服务停止等）时说明原因，不只隐藏操作。
  const withheld=!!status?.available&&!canSubmit&&(status.state==='idle'||status.state==='partial'&&status.failed.length>0);
- const detail=serviceBlocked&&status?.retryToken?'可先核对已保存的横图。重新绘制需要可用的绘图服务。':serviceBlocked?printServiceMessages[serviceBlocked]:withheld&&!manual?'当前没有可执行的横图操作。':manual?'横版制作等待恢复，已保存的画幅会保留。':status?.state==='completed'?(status.matchesSavedPages===false?'这套横图已完成，对应先前保存的分镜。':'横图已齐全，打印时按当前分镜顺序排版。'):
+ const detail=serviceBlocked&&status?.retryToken?'可先核对已保存的横图。重新绘制需要可用的绘图服务。':serviceBlocked?printServiceMessages[serviceBlocked]:withheld&&!manual?'当前没有可执行的横图操作。':manual?'横版制作等待恢复，已保存的画幅会保留。':status?.state==='completed'?(status.matchesSavedPages===false?'这套横图已完成，对应先前保存的分镜。':exportMissing?'横图已齐全，可以导出打印 PDF。':'横图已齐全，打印时按当前分镜顺序排版。'):
   status?.state==='running'? `正在生成，已保存 ${status.ready} / ${status.total} 幅。`:
   status?.readUnavailable?`已核对 ${status.ready} / ${status.total} 幅。`:
   partial?`${status.matchesSavedPages===false?'先前分镜已保存':'已保存'} ${status.ready} / ${status.total} 幅${status.failed.length?'，待重试第 '+status.failed.join('、')+' 幅':''}。`:
@@ -81,18 +85,21 @@ export default function StoryLandscapeStep({storyId,savedPages,onActivityChange}
  const running=status?.state==='running'&&!serviceBlocked&&!manual;
  const state:ProductionStageState=readError?'failed':serviceBlocked||manual?'paused':running?'current':status?.state==='completed'?'done':partial||actionError?'failed':status&&!status.available?'unavailable':'pending';
  const stateLabel={paused:serviceBlocked?'等待服务':'等待恢复',failed:readError||status?.readUnavailable?'读取失败':partial?'待重试':'提交失败',current:'进行中',done:'已完成',unavailable:'暂不可用',pending:status?'未生成':'读取中'}[state];
- const action=readError?<StoryFlowAction onClick={()=>setRefresh(value=>value+1)}>重新读取进度</StoryFlowAction>:
+ const action=readError?<StoryFlowAction tone={tone} onClick={()=>setRefresh(value=>value+1)}>重新读取进度</StoryFlowAction>:
   status&&(status.referenceError||status.readUnavailable||status.controlAction||status.modelToken||canSubmit)?actions(storyId,status):null;
- return <ProductionTimelineRow step={{id:'landscape',label:'横版插图（可选）',state,detail}} stateLabel={stateLabel} moving={running} detailLive>
+ return <ProductionTimelineRow step={{id:'landscape',label:exportMissing?'横版插图':'横版插图（可选）',state,detail:startInHeading?'':detail}}
+  name={showExportMissing?`缺 ${exportMissing.missingPages.length} 幅横图`:undefined}
+  stateLabel={startInHeading?'':stateLabel} navigation={startInHeading?action:undefined} moving={running} detailLive>
+  {showExportMissing&&exportMissing.ready>0&&<details className="yu-recovery-detail"><summary>查看缺图幅号</summary><p>第 {exportMissing.missingPages.join('、')} 幅</p></details>}
   {error&&<p className="yu-batch-error" role="alert">{error}</p>}
   {status?.referenceError&&<p className="yu-batch-error" role="alert">{status.referenceError}</p>}
-  {status?.earlier?.map(work=><div className="production-stage-actions" key={work.storyId}>
+  {!exportMissing&&status?.earlier?.map(work=><div className="production-stage-actions" key={work.storyId}>
    <span>第 {work.revision} 版横图 · {work.ready} / {work.total} 幅</span>
    {!readError&&actions(work.storyId,work)}
    {work.service&&work.service!=='available'&&<span>{printServiceMessages[work.service]}</span>}
    {work.referenceError&&<p className="yu-batch-error" role="alert">{work.referenceError}</p>}
    {work.error&&<p className="yu-batch-error" role="alert">{work.error}</p>}
   </div>)}
-  {action&&<div className="production-stage-actions">{action}</div>}
+  {action&&!startInHeading&&<div className="production-stage-actions">{action}</div>}
  </ProductionTimelineRow>;
 }

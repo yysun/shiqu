@@ -1,6 +1,6 @@
 // Edit owner defaults and independent story snapshots; render public notices as untrusted text.
 // 编辑器有未保存更改时表单带 data-dirty，返回或 Escape 关闭前先询问。
-import {useEffect,useRef,useState,type ReactNode} from 'react';
+import {useEffect,useLayoutEffect,useRef,useState,type ReactNode} from 'react';
 import type {Story} from '@/lib/content';
 import {aiDisclosure,emptyPublication,generationModelNames,hasPublicationAuthor,publicationSchema,rightsBoundary,watermarkFontSize,withPublicationDefaults} from '@/lib/story-publication';
 import type {StoryPublication} from '@/lib/story-publication';
@@ -11,8 +11,24 @@ import StoryFlowAction from './StoryFlowAction';
 
 type PublicationDetailsStory=Story&{generated?:boolean;generationModels?:{step:string;model:string}[]};
 
-export function StoryDownloads({story,downloads,exportStatus,exporting,onPublicationEdit}:{story:Story;downloads:ReactNode;exportStatus:string;exporting:boolean;onPublicationEdit:()=>void}){
- return <div className="yu-pdf-setting"><div className="yu-settings-formats" aria-label="下载故事">{downloads}</div><p className="yu-export-status" role="status">{exportStatus}</p>
+export function StoryDownloadFormats({downloads,printDownloads,printStatus,revealPrintRecovery,exportStatus}:{downloads:ReactNode;printDownloads:ReactNode;printStatus:ReactNode;revealPrintRecovery:boolean;exportStatus:string}){
+ const printFeedback=useRef<HTMLDivElement>(null);
+ useLayoutEffect(()=>{
+  if(revealPrintRecovery)printFeedback.current?.scrollIntoView({block:'nearest',inline:'nearest'});
+ },[revealPrintRecovery]);
+ return <div className="yu-download-formats">
+  <section aria-label="阅读与存档"><h3>阅读与存档</h3><div className="yu-download-list">{downloads}</div></section>
+  <section aria-label="打印">
+   <div className="yu-download-heading"><h3>打印</h3>{!revealPrintRecovery&&<span>需完整横图</span>}</div>
+   {printStatus&&<div className="yu-download-print-feedback" ref={printFeedback}>{printStatus}</div>}
+   <div className="yu-download-list">{printDownloads}</div>
+  </section>
+  <p className="yu-export-status" role="status">{exportStatus}</p>
+ </div>;
+}
+
+export function StoryDownloads({story,children,exporting,onPublicationEdit}:{story:Story;children:ReactNode;exporting:boolean;onPublicationEdit:()=>void}){
+ return <div className="yu-story-downloads">{children}
   <StoryPublicationSummary story={story} onEdit={onPublicationEdit} disabled={exporting}/>
  </div>;
 }

@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {setImmediate} from 'node:timers/promises';
-import {conflictSession,request} from '../lib/reader-request.ts';
+import {conflictSession,request,ResponseError} from '../lib/reader-request.ts';
 
 test('a read recovers from a disconnected server and a restarting proxy',async t=>{
  let calls=0;
@@ -87,4 +87,17 @@ test('a write conflict keeps the current version the server attaches, and is nev
  assert.equal(error.message,'当前选题或制作设置已更新');
  assert.deepEqual(conflictSession(error),{id:'winner'});
  assert.equal(conflictSession(new Error('other')),undefined);
+});
+
+test('a print conflict preserves the version and missing landscape pages for the recovery action',async t=>{
+ const body={error:'横版插图未完成',id:'latest-version',ready:2,total:3,missingPages:[2]};
+ const fetch=t.mock.method(globalThis,'fetch',async()=>Response.json(body,{status:409}));
+ await assert.rejects(request('reader/sessions/previous-version/export?layout=letter'),error=>{
+  assert.ok(error instanceof ResponseError);
+  assert.equal(error.status,409);
+  assert.deepEqual(error.body,body);
+  assert.equal(conflictSession(error),undefined);
+  return true;
+ });
+ assert.equal(fetch.mock.callCount(),1);
 });
