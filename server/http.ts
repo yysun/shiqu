@@ -30,10 +30,13 @@ async function outgoing(response:Response,target:ServerResponse){
  }
  target.end();
 }
-export type HttpPeer={remoteAddress:string|undefined;rawPath?:string};
+export type HttpPeer={remoteAddress:string|undefined;rawPath?:string;signal?:AbortSignal;afterReply?:(work:()=>void)=>void};
 export function createHttpServer(handle:(request:Request,peer:HttpPeer)=>Promise<Response>){
  return createServer(async(req,res)=>{
-  try{await outgoing(await handle(await incoming(req),{remoteAddress:req.socket.remoteAddress,rawPath:(req.url||'/').split('?')[0]}),res);}
+  const abort=new AbortController();
+  const afterReply=(work:()=>void)=>{if(res.destroyed)work();else res.once('close',work);};
+  res.once('close',()=>abort.abort());
+  try{await outgoing(await handle(await incoming(req),{remoteAddress:req.socket.remoteAddress,rawPath:(req.url||'/').split('?')[0],signal:abort.signal,afterReply}),res);}
   catch(error){
    if(res.headersSent){res.destroy();return;}
    const status=(error as {status?:number}).status===413?413:400;

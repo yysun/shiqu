@@ -286,30 +286,89 @@ fn stream_status(output: impl Read, send: mpsc::Sender<Value>) {
     }
 }
 
+/// 解析服务对停止请求的回复：Some(Ok(true)) 立即停止，Some(Ok(false)) 等候中，None 表示不是本次请求的回复。
+fn stop_reply(value: &Value, request: u64) -> Option<Result<bool, String>> {
+    if value["stopReply"].as_u64() != Some(request) {
+        return None;
+    }
+    if value["accepted"] != true {
+        return Some(Err("服务暂时无法停止，请稍后重试。".into()));
+    }
+    Some(Ok(value["draining"] != true))
+}
+
 pub struct Runtime {
     pub child: Child,
     pub status: Value,
+    pub attached: bool,
     updates: mpsc::Receiver<Value>,
+    stop_request: u64,
     _ownership: File,
 }
 impl Runtime {
     pub fn snapshot(&mut self) -> Value {
         for status in self.updates.try_iter() {
-            self.status = status;
+            if status.get("stopReply").is_none() {
+                self.status = status;
+            }
         }
         self.status.clone()
     }
-    pub fn stop(&mut self) {
-        if let Some(mut input) = self.child.stdin.take() {
-            let _ = input.write_all(b"{\"action\":\"stop\"}\n");
+    /// 请求常规停止。返回 true 表示已停止；false 表示服务在等已领取的步骤保存，之后自行退出。
+    /// 等候期间保留 stdin：关闭 stdin 会让服务立即停止。
+    pub fn request_stop(&mut self) -> Result<bool, String> {
+        if let Ok(Some(exit)) = self.child.try_wait() {
+            return if exit.success() {
+                Ok(true)
+            } else {
+                Err("服务异常退出，请检查状态后重新启动。".into())
+            };
         }
-        // EOF is also the crash watchdog. Node kills its detached Codex groups before closing.
-        let _ = wait(&mut self.child, Duration::from_secs(8));
+        self.stop_request += 1;
+        let request = self.stop_request;
+        let input = self.child.stdin.as_mut().ok_or("无法请求服务停止。")?;
+        writeln!(input, "{}", json!({"action":"stop","requestId":request}))
+            .map_err(|_| "无法请求服务停止。")?;
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err("没有收到停止确认，请检查服务状态后重试。".into());
+            }
+            let value = self
+                .updates
+                .recv_timeout(remaining)
+                .map_err(|_| "没有收到停止确认，请检查服务状态后重试。")?;
+            if value.get("stopReply").is_none() {
+                self.status = value;
+                continue;
+            }
+            match stop_reply(&value, request) {
+                Some(Ok(true)) => {
+                    drop(self.child.stdin.take());
+                    return wait(&mut self.child, Duration::from_secs(8)).map(|_| true);
+                }
+                Some(result) => return result,
+                None => {}
+            }
+        }
+    }
+    pub fn stop(&mut self, drain_acknowledged: bool) -> Result<(), String> {
+        let sent = self.child.stdin.take().map_or(true, |mut input| {
+            input.write_all(b"{\"action\":\"shutdown\"}\n").is_ok()
+        });
+        // 私有控制进程以退出码报告实际停止结果；接入时 EOF 本身只断开连接。
+        let stopped = wait(&mut self.child, Duration::from_secs(8));
+        if (sent || drain_acknowledged) && stopped.is_ok() {
+            Ok(())
+        } else {
+            Err("没有确认书库服务已停止，请重新连接并检查状态。".into())
+        }
     }
 }
 impl Drop for Runtime {
     fn drop(&mut self) {
-        self.stop();
+        let _ = self.stop(false);
     }
 }
 
@@ -423,8 +482,10 @@ pub fn start(
     let (child, status, updates) = launch(settings, settings_file, root, on_status)?;
     Ok(Runtime {
         child,
+        attached: status["attached"] == true,
         status,
         updates,
+        stop_request: 0,
         _ownership: ownership,
     })
 }
@@ -432,6 +493,23 @@ pub fn start(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn stop_reply_distinguishes_draining_from_stopped() {
+        assert_eq!(stop_reply(&json!({"running":true}), 1), None);
+        assert_eq!(stop_reply(&json!({"stopReply":2,"accepted":true}), 1), None);
+        assert_eq!(
+            stop_reply(&json!({"stopReply":1,"accepted":true,"draining":true}), 1),
+            Some(Ok(false))
+        );
+        assert_eq!(
+            stop_reply(&json!({"stopReply":1,"accepted":true,"draining":false}), 1),
+            Some(Ok(true))
+        );
+        assert!(matches!(
+            stop_reply(&json!({"stopReply":1,"accepted":false}), 1),
+            Some(Err(_))
+        ));
+    }
     #[test]
     fn upgrade_wait_outlives_startup_timeout_and_preserves_backup() {
         let (send, receive) = mpsc::channel();

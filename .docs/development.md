@@ -25,7 +25,11 @@ pnpm dev
 
 ## 服务与数据目录
 
-发布的 CLI 默认使用 `npx @apprun/shiqu`，无需 pnpm；源码入口使用 `pnpm cli`，用户已选择 pnpm 时也可用 `pnpm dlx @apprun/shiqu`。发布包安装的技能默认用 `npx --yes @apprun/shiqu@<技能版本>` 调用配套 CLI。入口 `server/cli.ts → server/start.ts` 不导入或启动 `server/desktop.ts` / Tauri。CLI 与桌面共用系统配置数据库 `desktop.sqlite`（协议版本 2），包含独立非密钥设置 JSON、revision 和按提供方分开的凭据；故事数据库不保存全局密钥。CLI 目录选择与服务首次问答、`--configure`、`--reset-providers` 见[使用指南](user-guide.md#cli-启动)。环境/显式配置文件仅覆盖本次调用，不自动持久化。原 CLI 的目录 JSON 只作迁移输入，之后两端使用同一个已确认书库。
+发布的 CLI 默认使用 `npx @apprun/shiqu`，源码入口使用 `pnpm cli`，用户指定 pnpm 启动器时也可用 `pnpm dlx @apprun/shiqu`。CLI 与桌面共用系统配置数据库 `desktop.sqlite`（协议版本 2），包含非密钥设置 JSON、revision 和按提供方分开的凭据；故事数据库只保存书库数据。CLI 目录选择、`--configure` 和 `--reset-providers` 见[使用指南](user-guide.md#cli-启动)。环境和显式配置文件只覆盖本次调用。原 CLI 的目录 JSON 只作迁移输入。
+
+CLI 与桌面使用每库独占锁及经实例验证的回环控制端点。私有 `/lifecycle` 提供同版本的接入、状态、停止和强停，`/command` 接收书库命令。桌面接入已打开的浏览器服务时沿用其地址；临时 CLI 进程先结束已接收的命令，再在原持锁进程中启用桌面阅读器，并沿用控制地址。无接入时临时服务命令完成后空闲退出。桌面 stdin 控制进程转发停止和强停；异常断连不终止已经接入的服务。
+
+浏览器与桌面服务共用同一套请求接收、任务跟踪和停服中止逻辑，生成设置也经过这个入口。持锁服务在正常停止后写本实例的私有回执；桌面接入端以该回执确认原 CLI 终端发起的停止。
 
 打开终端打印的本机访问地址；手机使用同一终端中的局域网二维码。默认前端端口为 `3000`，API 为 `3002`。与桌面版同时运行时可用：
 
@@ -47,7 +51,7 @@ SHIQU_API_PORT=3005 pnpm dev local --port 3004
 
 开发后端与桌面、浏览器 CLI、技能调用的 CLI 共用 `desktop.sqlite` 中保存的提供方、对应密钥、模型和任务推理档位；显式 shell 环境变量仅覆盖本次运行，不写回数据库。开发后端不自动加载项目 `.env`，避免旧配置把已选择的 Google 切回 Codex。Vite 的前端环境文件规则仍独立适用，不要把密钥放入 `VITE_` 变量。独立 `pnpm start` 的环境配置方式不变。
 
-`pnpm run setup` 只检查运行时、安装锁定依赖并安装 hooks，不再创建提供方 `.env`。首次使用在桌面设置中保存服务，或运行 `pnpm cli --configure`；该命令保存后退出，不启动生成。修改后重启开发/桌面/浏览器 CLI 服务；技能与 CLI 的下一次 `run` 读取新配置。两端使用同一书库时先停止占用它的服务，再切换入口。
+`pnpm run setup` 检查运行时、安装锁定依赖和 hooks。首次使用在桌面设置中保存服务，或运行 `pnpm cli --configure`。CLI 使用目标书库持有者的配置。空闲时 CLI 启动短时本机服务，并继承本次调用的环境参数。开发服务已经使用该书库时，CLI 直接连接其命令端点。
 
 开发或 CLI 浏览器服务运行后，在本机回环地址打开「我的 → 生成服务与模型」，可编辑共享提供方、文本/图片模型、任务推理和 API 密钥。页面将已保存设置与实际运行配置分开显示；环境/配置文件覆盖只显示变量名，保存后仍需重启，覆盖仍优先。旧密钥不返回浏览器，新输入保存成功后清空；保留、替换和移除密钥均为明确动作。并发保存冲突时保留草稿，重新读取后再修改。
 
@@ -96,7 +100,7 @@ Claude Code 文本提供方仅通过本次环境变量启用，不修改桌面�
 
 ### 真实审核对比
 
-未审完的文本可用 `pnpm cli stories copy SOURCE_ID --from-data-dir /absolute/source/library --data-dir /absolute/target/library --draft --request-id UUID` 保存为独立草稿。来源须已停止且保存完整分镜、原文及审核检查点；复制保留原审核状态、历史与模型记录，新故事暂停，不复制来源故障、任务或图片。它不代表审核通过，不调用模型；后续需要显式恢复制作并完成审核。草稿模式拒绝复制图片及 `copy-images`，普通 `copy` 的已通过审核要求不变。
+未审完的文本可用 `pnpm cli stories copy SOURCE_ID --from-data-dir /absolute/source/library --data-dir /absolute/target/library --draft --request-id UUID` 保存为独立草稿。从已就绪来源库读取一致快照。该故事须无在途竖版任务，并已保存完整分镜、原文及审核检查点；复制保留原审核状态、历史与模型记录，新故事暂停，不复制来源故障、任务或图片。它不代表审核通过，不调用模型；后续需要显式恢复制作并完成审核。草稿模式拒绝复制图片及 `copy-images`，普通 `copy` 的已通过审核要求不变。
 
 显式真实审核对比（会使用现有 Codex 订阅；普通测试不会运行）：
 

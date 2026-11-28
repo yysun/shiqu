@@ -1,31 +1,90 @@
-// Hold an OS-released service lease; read-only format refusal must precede every ownership write.
-import {openSync,readFileSync,writeFileSync,unlinkSync,mkdirSync,closeSync} from 'node:fs';
+// 书库独占锁由操作系统释放；持锁期间发布当前实例的 CLI 地址。
+import {openSync,readFileSync,writeFileSync,unlinkSync,mkdirSync,closeSync,renameSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {setTimeout as delay} from 'node:timers/promises';
 import {inspectLibrary} from './library-schema.ts';
-const owned=new Set<string>();
+type ServiceAddress={protocol:1;url:string;affinity?:string};
+type Owner={pid:number;id:string;managed?:true;service?:ServiceAddress};
+const ownerPath=(directory:string)=>path.join(directory,'.desktop-owner.json');
+const stopPath=(directory:string)=>path.join(directory,'.desktop-stopped.json');
+const owned=new Map<string,Owner>();
+const stopRequested=new Set<string>();
 export function ownsDesktopData(directory:string){return owned.has(path.resolve(directory));}
-export function ownDesktopDataSync(directory:string){
+export function desktopOwner(directory:string):Owner|undefined{
+ try{
+  const owner=JSON.parse(readFileSync(ownerPath(directory),'utf8')) as Owner;
+  if(Number.isSafeInteger(owner?.pid)&&owner.pid>0&&typeof owner.id==='string'&&/^[a-f0-9-]{36}$/.test(owner.id))return owner;
+ }catch{/* 启动或退出时记录可能尚未可读。 */}
+}
+export function ownerProcessExists(pid:number){
+ try{process.kill(pid,0);return true;}catch(error){return (error as NodeJS.ErrnoException).code!=='ESRCH';}
+}
+export function desktopStopSucceeded(directory:string,id:string){
+ try{return readFileSync(stopPath(directory),'utf8')===id;}catch{return false;}
+}
+export function expectDesktopStop(directory:string){
+ const owner=owned.get(path.resolve(directory));
+ if(owner)stopRequested.add(owner.id);
+}
+// 持锁者只在清理成功后写回执。接入控制台按实例核对，避免把清理中的崩溃当成正常停止。
+export function recordDesktopStop(directory:string){
+ const owner=owned.get(path.resolve(directory));
+ if(!owner||!stopRequested.has(owner.id))return;
+ const marker=stopPath(directory),draft=marker+'-'+owner.id;
+ try{writeFileSync(draft,owner.id,{flag:'wx',mode:0o600});renameSync(draft,marker);}
+ finally{try{unlinkSync(draft);}catch{/* 已发布的回执无需清理。 */}}
+}
+export function publishDesktopOwner(directory:string,service:ServiceAddress,persistent=false){
+ const key=path.resolve(directory),previous=owned.get(key);
+ if(!previous)throw Error('DATA_BUSY');
+ const owner=persistent?{pid:previous.pid,id:previous.id}:previous;
+ const filename=ownerPath(directory),draft=filename+'-'+owner.id;
+ try{
+  writeFileSync(draft,JSON.stringify({...owner,service}),{flag:'wx',mode:0o600});
+  renameSync(draft,filename);
+  if(persistent)owned.set(key,owner);
+ }catch(error){
+  try{unlinkSync(draft);}catch{/* 保留原始发布错误。 */}
+  throw error;
+ }
+ return owner.id;
+}
+export function ownDesktopDataSync(directory:string,managed=false){
  inspectLibrary(directory);directory=path.resolve(directory);mkdirSync(directory,{recursive:true});
  const lock=new DatabaseSync(path.join(directory,'.desktop-owner.sqlite'));
  try{lock.exec('PRAGMA busy_timeout=0; BEGIN EXCLUSIVE');}catch{lock.close();throw Error('DATA_BUSY');}
- const filename=path.join(directory,'.desktop-owner.json'),id=randomUUID();
+ const filename=ownerPath(directory),id=randomUUID();
+ const owner:Owner={pid:process.pid,id,...(managed?{managed:true as const}:{})};
  try{
   for(let attempt=0;attempt<2;attempt++){
    let file:number;
    try{file=openSync(filename,'wx',0o600);}catch(error){
     if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;
-    let previous:{pid:number};try{previous=JSON.parse(readFileSync(filename,'utf8'));}catch{throw Error('DATA_BUSY');}
+    let previous:Owner;try{previous=JSON.parse(readFileSync(filename,'utf8'));}catch{throw Error('DATA_BUSY');}
     if(!Number.isSafeInteger(previous.pid)||previous.pid<1)throw Error('DATA_BUSY');
-    try{process.kill(previous.pid,0);throw Error('DATA_BUSY');}catch(check){if((check as NodeJS.ErrnoException).code!=='ESRCH')throw Error('DATA_BUSY');}
+    // 已取得操作系统的独占锁。发布过地址的实例即使 PID 被复用，旧记录也可回收。
+    if(previous.service?.protocol!==1&&!previous.managed&&ownerProcessExists(previous.pid))throw Error('DATA_BUSY');
     unlinkSync(filename);continue;
    }
-   try{writeFileSync(file,JSON.stringify({pid:process.pid,id}));}finally{closeSync(file);}
-   owned.add(directory);let released=false;
-   return ()=>{if(released)return;released=true;owned.delete(directory);try{if(JSON.parse(readFileSync(filename,'utf8')).id===id)unlinkSync(filename);}catch{/* Already removed. */}finally{lock.close();}};
+   try{writeFileSync(file,JSON.stringify(owner));}finally{closeSync(file);}
+   owned.set(directory,owner);let released=false;
+   return ()=>{if(released)return;released=true;owned.delete(directory);stopRequested.delete(id);try{if(JSON.parse(readFileSync(filename,'utf8')).id===id)unlinkSync(filename);}catch{/* Already removed. */}finally{lock.close();}};
   }
   throw Error('DATA_BUSY');
  }catch(error){lock.close();throw error;}
 }
-export async function ownDesktopData(directory:string){return ownDesktopDataSync(directory);}
+export async function ownDesktopData(directory:string){
+ const deadline=Date.now()+3000;
+ let waitingFor:string|undefined;
+ while(true){
+  try{return ownDesktopDataSync(directory);}catch(error){
+   if((error as Error).message!=='DATA_BUSY')throw error;
+   const owner=desktopOwner(directory);
+   if(Date.now()>=deadline||owner&&(!owner.managed||waitingFor&&owner.id!==waitingFor)||!owner&&!waitingFor)throw error;
+   waitingFor??=owner?.id;
+   await delay(30);
+  }
+ }
+}

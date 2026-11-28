@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {savedProvider} from '../desktop/console-state.ts';
+import {restartStep,savedProvider} from '../desktop/console-state.ts';
 import {localReaderUrl} from '../desktop/reader-url.ts';
 import {defaultSystemSettings} from '../lib/system-settings.ts';
 
@@ -27,4 +27,15 @@ test('stopped provider summary requires both active API keys even when providerC
  assert.equal(savedProvider({...settings,imageProvider:'openai'},{gemini:true,openai:false}).configured,false);
  assert.equal(savedProvider({...settings,imageProvider:'openai'},{gemini:true,openai:true}).configured,true);
  assert.equal(savedProvider({...settings,provider:'codex'}).configured,true);
+});
+
+test('restart waits for the stop to finish, survives a busy console and yields to quitting', ()=>{
+ const stopping={running:true,state:'stopping'};
+ assert.equal(restartStep(stopping,false),'wait');
+ // 控制台忙时保留意图，停止完成后启动。
+ assert.equal(restartStep({running:false,state:'stopped'},true),'wait');
+ assert.equal(restartStep({running:false,state:'stopped'},false),'start');
+ // 退出优先；等候中异常退出不自动重启。
+ assert.equal(restartStep({...stopping,quitting:true},false),'cancel');
+ assert.equal(restartStep({running:false,state:'failed',error:'服务已退出'},false),'cancel');
 });

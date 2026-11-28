@@ -8,7 +8,8 @@ import {systemSettingsSchema,validApiKey,effectiveImageProvider,isApiProvider} f
 import type {KeyChange} from './system-settings.ts';
 import {loopbackAddress,providerSettingsSchema,providerSettingsSaveSchema,providerSettingsProofHeader,providerSettingsPath} from '../lib/provider-settings.ts';
 import type {ProviderSettingsView} from '../lib/provider-settings.ts';
-import type {HttpPeer} from './http.ts';
+import type {createApplication} from './app.ts';
+import type {createHttpServer,HttpPeer} from './http.ts';
 import {providerSignature,runtimeConfiguration,providerOverrideNames,checkProviderVariables} from './provider-runtime.ts';
 import {providerSettingsNetworkAccess} from './provider-settings-access.ts';
 type Variables=Record<string,string|undefined>;
@@ -41,7 +42,7 @@ export function browserProviderSettings(options:{variables:Variables;overrides:V
   return {settings:providerSettingsSchema.strip().parse(saved.settings),revision:saved.revision,keyPresent:saved.keyPresent,keyOverrides,appliesToNewJobs:!!options.live,runtime:options.live?runtimeConfiguration(effective):runtime,overrides,restartRequired:!options.live&&providerSignature(effective)!==runtimeSignature,platform:process.platform} satisfies ProviderSettingsView;
  }
  const openStore=()=>new SystemSettingsStore(locations.settings,locations.library,{existingOnly:options.existingOnly});
- const handler=async(request:Request,peer:HttpPeer)=>{
+ const handler=async(request:Request,peer:HttpPeer,transport=options.transport)=>{
   const url=new URL(request.url),origin=request.headers.get('origin');
   const proxyVerified=options.proxyToken===undefined||!!options.proxyToken&&loopbackAddress(peer.remoteAddress)&&request.headers.get(providerSettingsProofHeader)===options.proxyToken;
   if(peer.rawPath!==undefined&&peer.rawPath!==providerSettingsPath)return json({error:'生成服务设置仅接受固定本机路径。'},403);
@@ -57,7 +58,7 @@ export function browserProviderSettings(options:{variables:Variables;overrides:V
     if(raw.action==='check'||raw.action==='reset'){
      const input=z.object({action:z.enum(['check','reset']),expectedRevision:z.number().int().nonnegative()}).strict().parse(raw);
      if(input.expectedRevision!==store.revision())return json({error:'设置已由另一入口修改，请重新读取后保存。'},409);
-     if(input.action==='check')return json(await checkProviderVariables(effectiveProviderVariables(store,options.overrides),options.transport));
+     if(input.action==='check')return json(await checkProviderVariables(effectiveProviderVariables(store,options.overrides),transport));
      store.resetProviders(input.expectedRevision,true);return json(snapshot(store));
     }
     const input=providerSettingsSaveSchema.parse(raw);
@@ -98,4 +99,12 @@ export function browserProviderSettings(options:{variables:Variables;overrides:V
   return next;
  }
  return Object.assign(handler,{variablesForSnapshot(snapshot:{provider:string;imageProvider?:string}){const store=new SystemSettingsStore(locations.settings,locations.library,{existingOnly:true});try{return variablesForSnapshot(store,snapshot);}finally{store.close();}},snapshot(){const store=openStore();try{return snapshot(store);}finally{store.close();}},variables(){const store=new SystemSettingsStore(locations.settings,locations.library,{existingOnly:true});try{return variables(store);}finally{store.close();}}});
+}
+
+// 浏览器与桌面的设置共用请求接收、跟踪和中止；实际请求仍根据原套接字校验。
+export function withBrowserProviderSettings(app:Pick<ReturnType<typeof createApplication>,'handleApi'|'services'>,settings:ReturnType<typeof browserProviderSettings>|undefined,next:Parameters<typeof createHttpServer>[0]):Parameters<typeof createHttpServer>[0]{
+ if(!settings)return next;
+ return (request,peer)=>new URL(request.url).pathname===providerSettingsPath
+  ?app.handleApi(()=>settings(request,peer,app.services.transport))
+  :next(request,peer);
 }

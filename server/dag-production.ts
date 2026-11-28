@@ -825,8 +825,9 @@ export class DagProduction{
   * 「继续制作」：在一个事务中核对操作编号与本版等待继续的修订，清除等待、恢复后台制作并写入回执。
   * 已接受的编号先于其他核对重放：故事之后被替换或服务暂不可用时仍直接返回。用于其他操作或其他版本的编号被拒绝。
   * 只有这个动作清除等待。stopping 为真时不接受新的继续。
+  * cliHold 为真时，本版没有修订等待也接受：解除 CLI 保存或有限运行留下的等待，回执记为 `hold:'cli'`。
   */
- continue(ownerId:string,id:string,requestId:string,stopping=false){
+ continue(ownerId:string,id:string,requestId:string,stopping=false,cliHold=false){
   const transaction=this.deps.database.transaction;
   if(!transaction)throw Error('TRANSACTION_UNAVAILABLE');
   const now=this.deps.clock();
@@ -839,12 +840,12 @@ export class DagProduction{
    const story=db.get<{document:string}>(`SELECT document FROM stories WHERE id=? AND user_id=? AND NOT ${supersededSql()} AND ${visible}`,id,ownerId);
    const waiting=story?(decodeDocument(story)).dag?.continuation:undefined;
    if(db.get('SELECT id FROM stories WHERE id=? AND user_id=?',requestId,ownerId))throw new ReaderError(409,'这个操作编号已用于创建或提交故事。');
-   const authorization=authorizeProductionCommand('continue',{version:story?'current':'superseded',control:'active',continuation:!!waiting,
+   const authorization=authorizeProductionCommand('continue',{version:story?'current':'superseded',control:'active',continuation:!!waiting||cliHold&&!!story,
     targetCurrent:true,targetReady:true,stopping});
    if(!authorization.allowed)throw new ReaderError(authorization.status,authorization.message);
-   const fingerprint=`continue:${commandFingerprint(['continue',id,waiting!.revision])}`;
+   const fingerprint=`continue:${commandFingerprint(['continue',id,waiting?waiting.revision:'cli-hold'])}`;
    db.run(`UPDATE stories SET document=json_remove(document,'$.dag.continuation'),generation_control='active',updated_at=? WHERE id=? AND user_id=?`,new Date(now).toISOString(),id,ownerId);
-   db.run(`INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,result_id,created_at,updated_at) VALUES(?,?,?,'control',?,?,?,?,?)`,requestId,ownerId,id,fingerprint,JSON.stringify({action:'continue',revision:waiting!.revision}),id,now,now);
+   db.run(`INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,result_id,created_at,updated_at) VALUES(?,?,?,'control',?,?,?,?,?)`,requestId,ownerId,id,fingerprint,JSON.stringify(waiting?{action:'continue',revision:waiting.revision}:{action:'continue',hold:'cli'}),id,now,now);
    return false;
   });
   if(!replayed)this.deps.wake();

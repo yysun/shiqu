@@ -19,6 +19,7 @@ import {providerSignature} from './provider-runtime.ts';
 import {providerReady} from './cli-setup.ts';
 import {StoryDiscoveryCache} from './story-discovery-cache.ts';
 import {ReaderError} from '../lib/reader-model.ts';
+import {setTimeout as delay} from 'node:timers/promises';
 
 type Variables=Record<string,string|undefined>;
 // 属性读取绑定当前实例，生产 capture 则返回固定代际；退出和错误处理不再访问设置库。
@@ -43,10 +44,13 @@ export function liveReaderProvider(initial:Variables,read:()=>Variables,create:(
 const types:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.woff':'font/woff','.woff2':'font/woff2','.ico':'image/x-icon'};
 export function createApplication(options:{root:string;dataDirectory:string;variables?:Variables;providerVariables?:()=>Variables;snapshotVariables?:(snapshot:ModelSnapshot)=>Variables;transport?:typeof fetch;generation?:ReaderProvider;production?:ProductionOptions;commandOnly?:boolean;exportOnly?:boolean}){
  const local=openDatabase(options.dataDirectory,options.root,options.exportOnly);
+ // 模型与检索请求共用的停服信号：强停时中止进行中的请求，不等其返回。
+ const shutdown=new AbortController(),baseTransport=options.transport||fetch;
+ const transport:typeof fetch=(input,init)=>baseTransport(input,{...init,signal:init?.signal?AbortSignal.any([init.signal,shutdown.signal]):shutdown.signal});
  const media=new LibraryMedia(path.join(options.dataDirectory,'media'),local.database);
- const storySearch=applicationStorySearch(options.root,options.dataDirectory,()=>localBooks,options.transport||fetch);
+ const storySearch=applicationStorySearch(options.root,options.dataDirectory,()=>localBooks,transport);
  const localBooks:LocalBooks=new LocalBooks(options.root,storySearch,options.dataDirectory);
- const cache=new StoryDiscoveryCache(media),create=(variables:Variables)=>withLocalBooks(createReaderProvider(variables,media,options.transport||fetch),localBooks,media,cache,storySearch);
+ const cache=new StoryDiscoveryCache(media),create=(variables:Variables)=>withLocalBooks(createReaderProvider(variables,media,transport),localBooks,media,cache,storySearch);
  const generation=options.generation||(options.providerVariables?liveReaderProvider(options.variables||{},options.providerVariables,create):create(options.variables||{}));
  const imageWorkers=configuredImageWorkers(options.variables?.SHIQU_IMAGE_WORKERS);
  let retainedLegacyArt:Set<string>|undefined;
@@ -56,24 +60,54 @@ export function createApplication(options:{root:string;dataDirectory:string;vari
  const textProvider=options.generation?undefined:liveReaderProvider(textVariables(),textVariables,create);
  const snapshots:SnapshotService|undefined=options.generation?undefined:{
   current:()=>{const variables=liveVariables();return variables.SHIQU_AI_PROVIDER==='readonly'?undefined:currentSnapshot(variables);},
-  provider:snapshot=>{const result=providerForSnapshot(snapshot,options.snapshotVariables?options.snapshotVariables(snapshot):liveVariables(),media,options.transport||fetch);return result.available?withLocalBooks(result.provider,localBooks,media,cache,storySearch):null;},
+  provider:snapshot=>{const result=providerForSnapshot(snapshot,options.snapshotVariables?options.snapshotVariables(snapshot):liveVariables(),media,transport);return result.available?withLocalBooks(result.provider,localBooks,media,cache,storySearch):null;},
  };
  const production=options.exportOnly?undefined:new ReaderProductionCoordinator(local.database,generation,media,{imageWorkers,textProvider,...(snapshots?{snapshots}:{}),...options.production});
  if(!options.providerVariables&&options.variables?.SHIQU_AI_PROVIDER==='readonly'&&options.production?.autoStart!==false)production?.stop();
- const services:Services={db:local.db,database:local.database,media,variables:options.variables||{},ownerId:localOwnerId,localBooks,transport:options.transport||fetch,generation,production,commandOnly:options.commandOnly};
+ let active=0,maintenance=false,draining=false;
+ const cancels=new Set<()=>void>();
+ function trackWork<T>(work:Promise<T>,cancel?:()=>void){
+  active++;
+  // 停服等候开始后才登记的流式任务也立即取消，服务不必等它跑完。
+  if(cancel){cancels.add(cancel);if(draining)queueMicrotask(cancel);}
+  return work.finally(()=>{active--;if(cancel)cancels.delete(cancel);});
+ }
+ const services:Services={trackWork,db:local.db,database:local.database,media,variables:options.variables||{},ownerId:localOwnerId,localBooks,transport:transport,generation,production,commandOnly:options.commandOnly};
  const api=createApi(services),publicDirectory=path.resolve(options.root,'dist/client');
  let closed=false,closing:Promise<void>|undefined;
- return {services,get generating(){return production?.busy??false;},startGeneration:()=>production?.start(),stopGeneration:()=>production?.stop(),close(){
+ function pauseMaintenance(otherWork:()=>boolean){
+  if(maintenance)return;
+  maintenance=true;
+  const resume=production?.suspendDispatch();
+  const release=()=>{maintenance=false;resume?.();};
+  if(active||production?.activeWork||otherWork()){release();return;}
+  return release;
+ }
+ // 停服等候：停收新请求与新派发，取消可续跑的流式任务，等已接收的请求和已领取的制作任务结束。暂停保持到退出。
+ function drainForStop(otherWork:()=>boolean){
+  draining=true;
+  if(!maintenance){maintenance=true;production?.suspendDispatch();}
+  for(const cancel of [...cancels])cancel();
+  const idle=()=>!active&&!production?.activeWork&&!otherWork();
+  return {idle:idle(),settled:(async()=>{while(!idle())await delay(100);})()};
+ }
+ // 立即停止：先停止调度，使中止的任务按停服中断处理、下次启动重新执行，再中止进行中的模型请求。
+ function interruptWork(){production?.stop();shutdown.abort();}
+ function handleApi(work:()=>Promise<Response>){
+  if(maintenance||shutdown.signal.aborted)return Promise.resolve(Response.json({error:'正在处理书库维护，请稍候。'},{status:503}));
+  return trackWork(work());
+ }
+ return {services,pauseMaintenance,drainForStop,interruptWork,handleApi,get generating(){return production?.busy??false;},startGeneration:()=>production?.start(),stopGeneration:()=>production?.stop(),close(){
   if(closed)return closing;
   production?.stop();closed=true;
   if(!production?.busy){void production?.close();local.close();return;}
   return closing=production.close().then(()=>local.close());
- },async handle(request:Request){
+ },async handle(request:Request,cli=false){
   const url=new URL(request.url);
   try{
    if(url.pathname==='/api'||url.pathname.startsWith('/api/')){
     const segments=url.pathname.slice(5).split('/').filter(Boolean).map(decodeURIComponent);
-    return await api(request,segments);
+    return await handleApi(()=>api(request,segments,cli));
    }
    if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405});
    const pathname=decodeURIComponent(url.pathname);

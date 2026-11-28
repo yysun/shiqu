@@ -8,7 +8,7 @@ import {LibraryBackupCard} from './LibraryBackupCard';
 import {PhoneAccessCard} from './PhoneAccessCard';
 import {localReaderUrl} from './reader-url';
 import {useReleaseUpdate} from './release-update';
-import {savedProvider} from './console-state';
+import {restartStep,savedProvider} from './console-state';
 import type {Status,ServiceState} from './console-state';
 import {defaultSystemSettings} from '../lib/system-settings';
 import type {SystemSettings} from '../lib/system-settings';
@@ -51,16 +51,31 @@ function Desktop(){
  }
  async function start(){if(dirty)await save();accept({running:false,phoneUrls:[],state:'starting'});try{const next=await invoke<Status>('start_server');accept(next);if(!next.running)throw Error(next.error||'服务尚未启动。');}catch(e){accept({running:false,phoneUrls:[],state:'failed',error:String(e)});throw e;}}
  async function stop(){accept(await invoke<Status>('stop_server'));await reload();}
- async function restart(){if(!window.confirm(status.generating?'正在生成故事。重启会停止当前生成，之后可从浏览器继续。是否重启？':'重启会停止正在生成的工作，之后可从浏览器继续。是否重启？'))return;await stop();await start();}
+ // 有进行中的任务时停止进入等候；重启在停止完成后再启动。
+ const restartPending=useRef(false);
+ async function restart(){
+  if(!window.confirm('重启会暂时断开阅读器连接。正在处理的步骤会先保存，再重新启动。是否重启？'))return;
+  const next=await invoke<Status>('stop_server');
+  restartPending.current=true;
+  accept(next);
+ }
+ useEffect(()=>{
+  if(!restartPending.current||!known)return;
+  const step=restartStep(status,!!busy||inFlight.current);
+  if(step==='wait')return;
+  restartPending.current=false;
+  if(step==='start')void action('重启服务',async()=>{await reload();await start();});
+ },[status.running,status.state,status.quitting,status.error,known,busy]);
+ async function forceStop(){restartPending.current=false;if(status.quitting)await invoke('quit_app',{force:true});else{accept(await invoke<Status>('force_stop'));await reload();}}
  async function copy(value:string){await navigator.clipboard.writeText(value);setMessage('访问链接已复制。');}
- const state:ServiceState=!native?'preview':!known?statusError?'unavailable':'loading':status.state==='upgrading'||status.state==='starting'?status.state:status.running?'running':status.error?'failed':'stopped';
+ const state:ServiceState=!native?'preview':!known?statusError?'unavailable':'loading':status.state==='upgrading'||status.state==='starting'||status.state==='stopping'?status.state:status.running?'running':status.error?'failed':'stopped';
  const locked=!native||!!busy||!known||status.running||state==='starting'||state==='upgrading';
  const previewUrl=import.meta.env.DEV?localReaderUrl(import.meta.env.VITE_DESKTOP_READER_URL,window.location.href):null;
  return <main className="desktop-console"><header className="app-header"><div className="brand"><div className="brand-mark" aria-hidden="true">拾</div><div><h1>拾趣 <span>桌面控制台</span></h1><p>留一间故事书房，随时打开。</p></div></div></header>
   {release.latest&&<div className="notice release-notice"><span role="status">拾趣 {release.latest} 已发布。</span><button ref={release.downloadButton} className="secondary" onClick={()=>void release.openDownload()}>打开官方下载页</button>{release.openError&&<span className="error" role="status">{release.openError}</span>}</div>}
   {(error||message||statusError)&&<div className="notice" role="status">{error||statusError?<span className="error">{error||statusError}</span>:message}</div>}
   {!settings?<section className="card"><h2>正在读取本机设置…</h2><button onClick={()=>void action('读取设置',reload)}>重新读取设置</button></section>:<div className="layout"><div className="settings-stack">
-   <ServiceCard state={state} status={status} native={native} busy={busy} provider={status.running&&status.provider?status.provider:savedProvider(view?.settings||settings,view?.providerKeys)} nodeVersion={node?.version} nodeError={nodeError} onStart={()=>void action('启动服务',start)} onStop={()=>void action('停止服务',stop)} onRestart={()=>void action('重启服务',restart)} onOpen={()=>void action('打开浏览器',async()=>{await invoke('open_reader');})} onSettings={()=>void action('打开生成设置',async()=>{await invoke('open_reader',{generationSettings:true});})} previewUrl={previewUrl}/>
+   <ServiceCard state={state} status={status} native={native} busy={busy} provider={status.running&&status.provider?status.provider:savedProvider(view?.settings||settings,view?.providerKeys)} nodeVersion={node?.version} nodeError={nodeError} onStart={()=>void action('启动服务',start)} onStop={()=>void action('停止服务',stop)} onRestart={()=>void action('重启服务',restart)} onForceStop={()=>void action(status.quitting?'立即退出':'立即停止',forceStop)} onOpen={()=>void action('打开浏览器',async()=>{await invoke('open_reader');})} onSettings={()=>void action('打开生成设置',async()=>{await invoke('open_reader',{generationSettings:true});})} previewUrl={previewUrl}/>
    <section className="card local-settings"><div className="section-heading"><h2>本机与存储</h2><p>停止服务后可修改。</p></div><fieldset disabled={locked}><legend className="sr-only">本机设置</legend>
     <label>故事数据目录<div className="input-row"><input value={settings.dataDirectory} onChange={e=>update('dataDirectory',e.target.value)}/><button className="secondary" onClick={()=>void action('选择目录',()=>browse('data','dataDirectory'))}>选择目录</button></div></label>
     <label className="port-field">服务端口<input type="number" min="1024" max="65535" value={settings.port} onChange={e=>update('port',Number(e.target.value))}/></label>

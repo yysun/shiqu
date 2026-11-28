@@ -1,5 +1,5 @@
-// Agent-facing local commands use production Requests and a dormant/scoped coordinator, never HTTP.
-// stdout is a versioned JSON receipt; only explicit run can invoke generation, all writes retain API guards.
+// CLI 解析命令并调用正式生产入口；由持有书库的进程执行操作。
+// 保存命令不推演制作，显式 run 保留独立的调度范围。
 import {restoreAndUpgradeLibrary} from './library-upgrade.ts';
 import {readerStoryboardBatchSize} from '../lib/reader-limits.ts';
 import path from 'node:path';
@@ -29,6 +29,7 @@ import {discoveryThemePresets as themes} from '../lib/reader-discovery-themes.ts
 import {emptyPublication} from '../lib/story-publication.ts';
 import {selectionSchema,ReaderError} from '../lib/reader-model.ts';
 import type {ReaderProvider} from '../lib/reader-provider.ts';
+import type {CliStoryScope} from '../lib/reader-production.ts';
 import {LocalBooks} from './local-books.ts';
 import {applicationStorySearch,installStoryIndex} from './local-story-search.ts';
 import {revisionCoverMaxBytes} from './reader-revisions.ts';
@@ -54,7 +55,7 @@ const commands=[
  ['stories create','Save intake intent; input is a selection or {selection,intake:true,requestId}. Set discovery.themeInput to preset to use the selected theme’s full definition.','stories create --input selection.json --request-id UUID'],
  ['stories setup|search|choose|confirm','Persist intake actions with explicit --generation or input.generation. For draft, recommend and confirm, pass the previously read intake.draftToken in the input. Mark intentionally blank requirement fields with requirementsEdited. Inference requires run.','stories choose ID --batch 0 --index 0 --generation N'],
  ['run / stories run','Run only one current story to candidates, prepared, reviewed or completed; never resumes a pause/fault implicitly. Text uses live settings and drawing uses the version’s saved image provider and model.','run ID --until reviewed --timeout 900'],
- ['stories copy','Copy saved text and review from an offline library without inference. --draft explicitly preserves unreviewed text as a paused copy without images; default requires passed review.','stories copy ID --from-data-dir SOURCE --request-id UUID'],
+ ['stories copy','Copy saved text and review from another library without inference. --draft explicitly preserves unreviewed text as a paused copy without images; default requires passed review.','stories copy ID --from-data-dir SOURCE --request-id UUID'],
  ['stories copy-images','Attach source images to an existing paused text copy without inference or prompts. Safe to repeat; retains text and review.','stories copy-images TARGET_ID --from-data-dir SOURCE --input source.json'],
  ['stories edit','Save a revision using the current token. Supply a revised plan plus changes.removedFrames to shorten a storyboard. changes.storySummary sets the displayed synopsis. Use changes.structureEdits with 1-based inclusive ranges and replacement scenes to merge or split frames; preview shows which redraw notes will be discarded. On a paused audit, changes.reviewNotes guides another review. changes.redrawPages uses 1-based pages and accepts optional changes.redrawNotes. If the revision needs more work, it is saved waiting (已保存，等待继续). Continue it to fill missing or invalid results. Earlier versions retain their own faults. --cover FILE saves that image byte for byte as the first frame of a style-only change on a completed, review-passed story. Use changes.redrawPages:[1] to replace only the first image, or list all frames to redraw the rest using the supplied image. After saving, continue and run if work is pending.','stories edit ID --input revision.json --request-id UUID'],
  ['stories continue','Authorize a saved revision that is waiting (已保存，等待继续). This clears the wait and the pause. Run the new version to perform inference. A run attempted while waiting returns continue_required.','stories continue NEW_ID --request-id UUID'],
@@ -67,8 +68,10 @@ const commands=[
  ['export','Export the latest saved revision as json|md|zip|pdf|png. ZIP defaults public; internal prompts require --include-prompts.','export ID --format zip --output /private/story.zip'],
  ['backup|verify-backup|restore|diagnostics','Private verified library maintenance; restore requires an explicit new --data-dir.','backup /private/new-backup'],
  ['config get|set|reset','Shared saved settings; secret replacement only in JSON input, never argv or output.','config set --input settings.json'],
- ['api METHOD reader/ROUTE','In-process allowlisted reader persistence/inspection. Direct inference is rejected; run advances production.','api GET reader/sessions'],
+ ['api METHOD reader/ROUTE','Allowlisted reader persistence/inspection. Direct inference is rejected; run advances production.','api GET reader/sessions'],
 ].map(([name,description,example])=>({name,description,example}));
+/** 书库服务停止时中止 CLI 命令的原因；全量运行据此在服务重启后续跑。 */
+export const serviceStopReason='service-stop';
 export class CliCommandError extends Error{
  readonly code:string;readonly exitCode:number;readonly details?:unknown;
  constructor(code:string,message:string,exitCode=2,details?:unknown){super(message);this.code=code;this.exitCode=exitCode;this.details=details;}
@@ -98,15 +101,16 @@ const inputs={
  publication:{get:'api GET reader/publication-defaults',set:'api POST reader/publication-defaults --input publication.json',input:{publication:{...emptyPublication,author:'你的署名',watermarkFontSize:24},expected:'Use the exact publication object (or null) returned by GET.'}},
  config:{command:'config set --input settings.json',input:{settings:{provider:'codex',providerConfigured:true,imageProvider:'gemini'},expectedRevision:'from config get'},imageProvider:'Optional drawing provider (gemini|openai|codex); null or omitted follows provider.',key:'For API providers only: key:{provider:"openai"|"gemini",value:"secret"|null}, or a list for separate text/image providers; never pass a key in argv.'},
 };
-type Context={cwd?:string;home?:string;generation?:ReaderProvider;localBooks?:LocalBooks;variables?:Record<string,string|undefined>;input?:unknown;signal?:AbortSignal;skill?:{transport?:typeof fetch;now?:()=>number};skillRuntime?:StartupSkillRuntime};
+type Application=ReturnType<typeof createApplication>;
+type Context={host?:{directory:string;application?:Application;pauseForBackup?:()=>()=>void};serviceClient?:boolean;progress?:(line:string)=>void;cwd?:string;home?:string;generation?:ReaderProvider;localBooks?:LocalBooks;variables?:Record<string,string|undefined>;input?:unknown;signal?:AbortSignal;skill?:{transport?:typeof fetch;now?:()=>number};skillRuntime?:StartupSkillRuntime};
 function parse(args:string[]){return parseArgs({args,allowPositionals:true,strict:true,options:Object.fromEntries([
  ...['data-dir','from-data-dir','input','output','format','until','timeout','title','author','era','source-note','license','encoding','request-id','query','batch','index','scope','generation','auto-update','limit','cover','draft-id'].map(k=>[k,{type:'string'}]),
  ...['json','brief','help','allow-unsigned','include-prompts','no-intake','refresh','automatic','copy-images','no-copy-images','draft','accept-rights','estimate','retry-failed','yes'].map(k=>[k,{type:'boolean'}]),
  ]) as Record<string,{type:'string'|'boolean'}>});}
-async function readInput(filename?:string){
+async function readInput(filename?:string,cwd=process.cwd()){
  if(!filename)return {};
  let text='';if(filename==='-'){for await(const chunk of process.stdin){text+=chunk;if(Buffer.byteLength(text)>1048576)throw new CliCommandError('INPUT_TOO_LARGE','JSON input exceeds 1 MiB.');}}
- else{if((await stat(path.resolve(filename))).size>1048576)throw new CliCommandError('INPUT_TOO_LARGE','JSON input exceeds 1 MiB.');text=await readFile(path.resolve(filename),'utf8');}
+ else{if((await stat(path.resolve(cwd,filename))).size>1048576)throw new CliCommandError('INPUT_TOO_LARGE','JSON input exceeds 1 MiB.');text=await readFile(path.resolve(cwd,filename),'utf8');}
  try{return JSON.parse(text);}catch{throw new CliCommandError('INVALID_JSON','Input must contain valid JSON.');}
 }
 const apiAllow=(method:string,route:string)=>{
@@ -124,9 +128,22 @@ async function streamApi(app:ReturnType<typeof createApplication>,route:string,i
  const response=await app.handle(new Request('http://shiqu.local/api/reader/'+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input),signal}));
  if(!response.ok){const data=await response.json().catch(()=>({}));throw new CliCommandError(response.status===409?'CONFLICT':response.status===404?'NOT_FOUND':response.status===503?'PROVIDER_UNAVAILABLE':'INVALID_REQUEST',data.error||'The production action failed.',response.status>=500?4:2,{status:response.status});}
  const reader=response.body?.getReader();if(!reader)throw new CliCommandError('EMPTY_STREAM','The local task returned no progress stream.');
+ // 同进程读取响应；请求中止时主动结束读取，后台任务仍由应用等候清理。
+ const cancel=()=>{void reader.cancel().catch(()=>{});};
+ signal.addEventListener('abort',cancel,{once:true});if(signal.aborted)cancel();
  const decoder=new TextDecoder(),last:any={};let pending='';
  const accept=(line:string)=>{if(!line.trim())return;const event=JSON.parse(line);onEvent(event);Object.assign(last,event);if(event.type==='error')throw new CliCommandError('TASK_FAILED',event.error||'The local task failed.',4);if(event.type==='complete')last.progress=event.progress;};
- try{while(true){const {done,value}=await reader.read();pending+=decoder.decode(value,{stream:!done});const lines=pending.split('\n');pending=lines.pop()||'';for(const line of lines)accept(line);if(done){accept(pending);break;}}}finally{reader.releaseLock();}
+ try{
+  while(true){
+   const {done,value}=await reader.read();
+   signal.throwIfAborted();
+   pending+=decoder.decode(value,{stream:!done});
+   const lines=pending.split('\n');
+   pending=lines.pop()||'';
+   for(const line of lines)accept(line);
+   if(done){accept(pending);break;}
+  }
+ }finally{signal.removeEventListener('abort',cancel);reader.releaseLock();}
  return last.progress||last;
 }
 async function uploadImportFile(app:ReturnType<typeof createApplication>,draftId:string,filename:string,encoding?:string){
@@ -135,15 +152,21 @@ async function uploadImportFile(app:ReturnType<typeof createApplication>,draftId
  const response=await app.handle(new Request(`http://shiqu.local/api/reader/books/imports/${encodeURIComponent(draftId)}/files`,{method:'POST',headers:{'Content-Type':contentType,'X-File-Name':encodeURIComponent(path.basename(filename)),...(encoding&&['.txt','.html','.htm'].includes(extension)?{'X-Text-Encoding':encoding}:{})},body:new Uint8Array(bytes)}));
  const data=await response.json().catch(()=>({}));if(!response.ok)throw new CliCommandError(response.status===413?'IMPORT_LIMIT':response.status===409?'CONFLICT':'INVALID_IMPORT_FILE',data.error||'Could not import the source file.',response.status>=500?4:2,{status:response.status});return data;
 }
-async function importSources(app:ReturnType<typeof createApplication>,sources:string[],metadata:any,encoding?:string){
+async function importSources(app:ReturnType<typeof createApplication>,sources:string[],metadata:any,encoding:string|undefined,cwd:string){
  need(sources.length>0&&sources.length<=100,'IMPORT_SOURCE_COUNT','Provide between 1 and 100 files or URLs.');
  const urls=sources.map(source=>/^https?:\/\//i.test(source));need(urls.every(Boolean)||urls.every(value=>!value),'MIXED_IMPORT_INPUTS','Import either URLs or local files in one command.');
  const created=await api(app,'POST','books/imports',{...metadata,...(urls[0]?{urls:sources,...(encoding?{encoding}:{})}:{})});let preview=created.preview;
- try{if(!urls[0])for(const filename of sources)preview=await uploadImportFile(app,created.draft.id,filename,encoding);}
+ try{if(!urls[0])for(const filename of sources)preview=await uploadImportFile(app,created.draft.id,path.resolve(cwd,filename),encoding);}
  catch(error){await api(app,'DELETE',`books/imports/${encodeURIComponent(created.draft.id)}`).catch(()=>{});throw error;}
  return {draft:created.draft,preview};
 }
 function outputOutside(root:string,filename:string){for(const served of ['public','dist/client'])need(!containsPath(path.join(root,served),filename),'PRIVATE_OUTPUT_REQUIRED','Output must be outside application static directories.');}
+export function canDispatchCliCommand(args:string[],input:unknown){
+ const {values,positionals:[command,action]}=parse(args);
+ return !values.help&&(!values.input||input!==undefined)&&(
+  ['init','status','catalog','stories','run','api','backup'].includes(command)
+  ||command==='books'&&!['search','index-install'].includes(action));
+}
 export async function executeHeadless(root:string,args:string[],context:Context={}){
  const {values:v,positionals:p}=parse(args);const command=p[0]||'help',action=p[1],id=p[2],value=(name:string)=>typeof v[name]==='string'?v[name] as string:undefined;
  need(commandNames.has(command),'UNKNOWN_COMMAND','Use help --json for available commands.');
@@ -167,7 +190,8 @@ export async function executeHeadless(root:string,args:string[],context:Context=
   if(action==='update')return updateSkill(root,scope,skillContext,!!v.automatic,context.skillRuntime);
   return {appVersion,scope,...await installSkill(root,scope==='global'?context.home||os.homedir():context.cwd)};
  }
- const input=context.input??await readInput(value('input'));need(input&&typeof input==='object'&&!Array.isArray(input),'INVALID_INPUT','JSON input must be an object.');
+ const cwd=context.cwd||process.cwd(),resolve=(filename:string)=>path.resolve(cwd,filename);
+ const input=context.input!==undefined?context.input:await readInput(value('input'),cwd);need(input&&typeof input==='object'&&!Array.isArray(input),'INVALID_INPUT','JSON input must be an object.');
  const supplied=(input as any).requestId||value('request-id'),requestId=supplied||randomUUID();need(uuid(requestId),'INVALID_REQUEST_ID','requestId must be a UUID.');
  const variables=context.variables||process.env,locations=desktopLibraryPaths({variables,home:context.home});
  if(command==='config'){
@@ -179,12 +203,16 @@ export async function executeHeadless(root:string,args:string[],context:Context=
   }finally{store.close();}
  }
  if(command==='verify-backup'){need(action,'BACKUP_PATH_REQUIRED','Specify a backup directory.');const verified=verifyBackupForMaintenance(path.resolve(action));return {verified:true,files:verified.files.length,createdAt:verified.createdAt};}
- const directory=path.resolve(value('data-dir')||variables.SHIQU_DATA_DIR||savedDesktopLibraryDirectory({variables,home:context.home})||locations.library);
- if(command==='catalog'&&!existsSync(path.join(directory,'shiqu.sqlite'))){
+ const directory=context.host?.directory||resolve(value('data-dir')||variables.SHIQU_DATA_DIR||savedDesktopLibraryDirectory({variables,home:context.home})||locations.library);
+ if(command==='catalog'&&!context.host&&!existsSync(path.join(directory,'shiqu.sqlite'))){
   return {books:readerBooks,themes,styles:artStyles.map(({prompt,...style})=>style),styleGroups:artStyleGroups};
  }
  // 检索只访问独立索引和随应用发布的原文，不初始化或锁定正式书库。
  if(command==='books'&&action==='index-import'){
+  if(context.serviceClient&&existsSync(path.join(directory,'shiqu.sqlite'))){
+   const {callCliService}=await import('./cli-service.ts');
+   return callCliService(root,directory,args,cwd,variables,value('input')!==undefined?input:undefined);
+  }
   need(id&&p[3]&&p.length===4,'INVALID_INPUT','Use books index-import BOOK FILE.');
   need(!/^my-[a-f0-9]{16}$/.test(id),'IMPORTED_BOOK_INDEX_DISABLED','Imported books use generated local story cards; use books cards, then books index.');
   outputOutside(root,directory);
@@ -243,22 +271,60 @@ export async function executeHeadless(root:string,args:string[],context:Context=
  }
  // Normal commands share desktop/server automatic initialization; backup must never create an empty source.
  if(command==='backup')need(existsSync(path.join(directory,'shiqu.sqlite')),'LIBRARY_NOT_FOUND','Cannot back up a library without an existing database.');
- const release=await ownDesktopData(directory),removeDiagnostics=installDiagnostics(directory);let app:ReturnType<typeof createApplication>|undefined;
+ if(context.serviceClient){
+  const {callCliService}=await import('./cli-service.ts');
+  const result=await callCliService(root,directory,args,cwd,variables,value('input')!==undefined?input:undefined);
+  return command==='init'?{...(result as object),path:directory}:result;
+ }
+ const release=context.host?()=>{}:await ownDesktopData(directory);
+ let removeDiagnostics=()=>{},app:Application|undefined;
+ try{if(!context.host?.application)removeDiagnostics=installDiagnostics(directory);}catch(error){release();throw error;}
  const running=command==='run'||command==='stories'&&action==='run',cardTask=command==='books'&&action==='cards'&&!v.estimate,cardEstimate=command==='books'&&action==='cards'&&!!v.estimate,indexTask=command==='books'&&action==='index',taskSignal=cardTask||indexTask,target=command==='run'?action:id;
  const until=value('until')||'completed',timeout=Number(value('timeout')||900);let timer:ReturnType<typeof setTimeout>|undefined;
- const abort=new AbortController();let timedOut=false;
- const interrupt=()=>{app?.stopGeneration();abort.abort();void Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);};
+ const abort=new AbortController(),shared=context.host?.application;
+ let timedOut=false,runScope:CliStoryScope|undefined;
+ let runOutcome:'restore'|'release'|'hold'='restore',resumesAfterRestart=false,dispatchGranted=false;
+ const progress=context.progress||((line:string)=>{process.stderr.write(line);});
+ const checkTaskCancellation=(error:unknown)=>{
+  if(!abort.signal.aborted)throw error;
+  if(context.signal?.reason===serviceStopReason)throw new CliCommandError('INTERRUPTED','The library service stopped; saved book work is retained.',130);
+ };
+ // 用户中断或超时保留等待；服务停止中断的全量运行释放等待，重启后由调度器按原授权续跑。
+ const interrupt=()=>{
+  if(runScope){
+   runScope.setPermission('none');
+   // 只有已通过校验、获准派发的全量运行释放等待；校验前被停服中断时保留原等待。
+   const stopping=context.signal?.reason===serviceStopReason;
+   resumesAfterRestart=dispatchGranted&&!timedOut&&until==='completed'&&stopping;
+   runOutcome=stopping&&!dispatchGranted?'restore':resumesAfterRestart?'release':'hold';
+  }
+  if(!shared){app?.stopGeneration();void Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);}
+  abort.abort();
+ };
  try{
-  if(command==='backup'){need(action,'BACKUP_PATH_REQUIRED','Specify a new backup directory.');outputOutside(root,path.resolve(action));const manifest=createLibraryBackup(directory,path.resolve(action),appVersion,root);return {path:path.resolve(action),files:manifest.files.length,verified:true};}
+  if(command==='backup'){
+   need(action,'BACKUP_PATH_REQUIRED','Specify a new backup directory.');
+   const target=resolve(action);outputOutside(root,target);
+   const resume=context.host?.pauseForBackup?.();
+   try{
+    const manifest=createLibraryBackup(directory,target,appVersion,root);
+    return {path:target,files:manifest.files.length,verified:true};
+   }finally{resume?.();}
+  }
   let effective:Record<string,string|undefined>={...variables,SHIQU_AI_PROVIDER:'readonly'};
- if((running||cardTask||cardEstimate)&&!context.generation){
+  if(!shared&&(running||cardTask||cardEstimate)&&!context.generation){
    if(existsSync(locations.settings)){const store=new SystemSettingsStore(locations.settings,locations.library);try{effective=effectiveProviderVariables(store,variables);}finally{store.close();}}
    else effective={...variables,SHIQU_AI_PROVIDER:variables.SHIQU_AI_PROVIDER||'readonly'};
   }
   if(running){need(target&&uuid(target),'STORY_ID_REQUIRED','run requires a story UUID.');need(['candidates','prepared','reviewed','completed'].includes(until),'INVALID_UNTIL','Use candidates|prepared|reviewed|completed.');need(Number.isFinite(timeout)&&timeout>0&&timeout<=86400,'INVALID_TIMEOUT','Timeout must be between 0 and 86400 seconds.');}
   const transport:typeof fetch=(url,options)=>fetch(url,{...options,signal:options?.signal?AbortSignal.any([options.signal,abort.signal]):abort.signal});
-  app=createApplication({root,dataDirectory:directory,variables:effective,transport,generation:context.generation,commandOnly:!running,production:{autoStart:false,targetSessionId:running?target:undefined,portraitOnly:running,stopBeforeImages:running&&until!=='completed'}});
-  if(running||taskSignal){process.once('SIGINT',interrupt);process.once('SIGTERM',interrupt);context.signal?.addEventListener('abort',interrupt,{once:true});if(context.signal?.aborted)interrupt();}
+  const application=shared||createApplication({root,dataDirectory:directory,variables:effective,transport,generation:context.generation,commandOnly:!running,production:{autoStart:false,targetSessionId:running?target:undefined,portraitOnly:running,stopBeforeImages:running&&until!=='completed'}});
+  app=context.host?{...application,handle:request=>application.handle(request,true)}:application;
+  if(running||taskSignal){
+   if(!context.host){process.once('SIGINT',interrupt);process.once('SIGTERM',interrupt);}
+   context.signal?.addEventListener('abort',interrupt,{once:true});
+   if(context.signal?.aborted)interrupt();
+  }
   if(context.localBooks)app.services.localBooks=context.localBooks;
   if(command==='init')return {initialized:true,path:directory,started:false};
   if(command==='status')return diagnosticReport(directory,appVersion);
@@ -275,7 +341,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
   if(command==='books'&&action==='contents'){need(id,'BOOK_ID_REQUIRED','Specify a book ID.');return await api(app,'GET',`books/${encodeURIComponent(id)}/contents?q=${encodeURIComponent(value('query')||'')}`);}
   if(command==='books'&&action==='import'){
    need(!!value('title'),'TITLE_REQUIRED','Use books import FILE|URL... --title TITLE --accept-rights.');need(v['accept-rights'],'RIGHTS_ACCEPTANCE_REQUIRED','Confirm the right to store and use these sources with --accept-rights.');need(p.length>=3,'IMPORT_SOURCE_REQUIRED','Provide one or more local files or HTTP(S) URLs.');
-   const result=await importSources(app,p.slice(2),{title:value('title'),author:value('author'),era:value('era'),sourceNote:value('source-note'),license:value('license'),acceptRights:true},value('encoding'));
+   const result=await importSources(app,p.slice(2),{title:value('title'),author:value('author'),era:value('era'),sourceNote:value('source-note'),license:value('license'),acceptRights:true},value('encoding'),cwd);
    return {id:result.draft.id,title:result.draft.title,status:'structuring',sources:result.preview?.manifest?.sources?.length||0,chapters:result.preview?.chapters?.length||0,structure:result.preview};
   }
   if(command==='books'&&action==='structure'){
@@ -289,13 +355,13 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    need(id&&/^my-[a-f0-9]{16}$/.test(id),'BOOK_ID_REQUIRED','Specify an imported book ID.');
    if(v.estimate){need(!v['retry-failed'],'INVALID_INPUT','--retry-failed applies only when running cards.');return await api(app,'GET',`books/imported/${encodeURIComponent(id)}/cards/estimate`);}
    need(value('encoding')===undefined,'INVALID_INPUT','--encoding applies only to books import.');
-   try{const result=await streamApi(app,`books/imported/${encodeURIComponent(id)}/cards`,{retryFailed:!!v['retry-failed']},abort.signal,event=>{if(event.type==='progress')process.stderr.write(`\r故事卡 ${event.progress?.status||''} · ${event.progress?.chapters?.filter((chapter:any)=>chapter.status==='done').length||0}/${event.progress?.chapters?.length||0} 章`);});process.stderr.write('\n');return result;}
-   catch(error){if(!abort.signal.aborted)throw error;await api(app,'POST',`books/imported/${encodeURIComponent(id)}/cards/cancel`,{});const current=await api(app,'GET',`books/imported/${encodeURIComponent(id)}/cards`);process.stderr.write('\n');return {cancelled:true,progress:current.progress};}
+   try{const result=await streamApi(app,`books/imported/${encodeURIComponent(id)}/cards`,{retryFailed:!!v['retry-failed']},abort.signal,event=>{if(event.type==='progress')progress(`\r故事卡 ${event.progress?.status||''} · ${event.progress?.chapters?.filter((chapter:any)=>chapter.status==='done').length||0}/${event.progress?.chapters?.length||0} 章`);});progress('\n');return result;}
+   catch(error){checkTaskCancellation(error);await api(app,'POST',`books/imported/${encodeURIComponent(id)}/cards/cancel`,{});const current=await api(app,'GET',`books/imported/${encodeURIComponent(id)}/cards`);progress('\n');return {cancelled:true,progress:current.progress};}
   }
   if(command==='books'&&action==='index'){
    need(id&&/^my-[a-f0-9]{16}$/.test(id),'BOOK_ID_REQUIRED','Specify an imported book ID.');
-   try{const result=await streamApi(app,`books/${encodeURIComponent(id)}/embedding-index`,{},abort.signal,event=>{if(event.type==='progress')process.stderr.write(`\r向量索引 ${event.completed||0}/${event.total||0}`);});process.stderr.write('\n');return result;}
-   catch(error){if(!abort.signal.aborted)throw error;process.stderr.write('\n');return {cancelled:true};}
+   try{const result=await streamApi(app,`books/${encodeURIComponent(id)}/embedding-index`,{},abort.signal,event=>{if(event.type==='progress')progress(`\r向量索引 ${event.completed||0}/${event.total||0}`);});progress('\n');return result;}
+   catch(error){checkTaskCancellation(error);progress('\n');return {cancelled:true};}
   }
   if(command==='books'&&action==='remove'){
    need(id&&/^my-[a-f0-9]{16}$/.test(id),'BOOK_ID_REQUIRED','Specify an imported book ID.');need(v.yes,'CONFIRMATION_REQUIRED','Deleting the original, cards, vectors and generation cache requires --yes.');return await api(app,'DELETE',`books/imported/${encodeURIComponent(id)}`);
@@ -309,7 +375,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    }
    need(p.length>=4,'IMPORT_SOURCE_REQUIRED','Use books reimport BOOK_ID FILE|URL... --accept-rights, then review the returned draft structure.');need(v['accept-rights'],'RIGHTS_ACCEPTANCE_REQUIRED','Confirm the right to store and use replacement sources with --accept-rights.');
    const current=await api(app,'GET',`books/imported/${encodeURIComponent(id)}`),metadata={title:value('title')||current.title,author:value('author')??current.author,era:value('era')??current.era,sourceNote:value('source-note')??current.sourceNote,license:value('license')??current.license,acceptRights:true};
-   const result=await importSources(app,p.slice(3),metadata,value('encoding')),draftId=result.draft.id;
+   const result=await importSources(app,p.slice(3),metadata,value('encoding'),cwd),draftId=result.draft.id;
    if(value('input')===undefined&&context.input===undefined)return {id,title:metadata.title,status:'review-required',draftId,sources:result.preview?.manifest?.sources?.length||0,chapters:result.preview?.chapters?.length||0,structure:result.preview,message:`检查草稿：books structure ${draftId}；替换时提供已检查的结构：books reimport ${id} --draft-id ${draftId} --input reviewed-structure.json`};
    await api(app,'PUT',`books/imported/${encodeURIComponent(draftId)}/structure`,input);return await api(app,'POST',`books/imported/${encodeURIComponent(id)}/replace`,{draftId});
   }
@@ -319,7 +385,15 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    return await api(app,action.toUpperCase(),route,['GET','HEAD'].includes(action.toUpperCase())?undefined:data);
   }
   if(running){
+   if(abort.signal.aborted)throw new CliCommandError('INTERRUPTED','Run interrupted before dispatch.',130);
+   if(context.host){
+    try{runScope=await app.services.production?.beginCliRun?.(app.services.ownerId,target!,until==='completed');}
+    catch(error){if(error instanceof ReaderError)throw new CliCommandError('CONFLICT',error.message);throw error;}
+    if(abort.signal.aborted){interrupt();throw new CliCommandError('INTERRUPTED',resumesAfterRestart?'Run interrupted because the library service stopped; production resumes when it restarts.':'Run interrupted before dispatch.',130,{resumesAfterRestart});}
+   }
    const current=await api(app,'GET',`sessions/${target}/current`);const initial=await api(app,'GET',`sessions/${target}`);need(current.id===target&&!initial.superseded,'SUPERSEDED_VERSION','Use the current family version.');
+    // 校验读取期间被中断：按中断返回并保留原等待，不再继续后续判定。
+    if(abort.signal.aborted)throw new CliCommandError('INTERRUPTED','Run interrupted before dispatch.',130,{resumesAfterRestart:false});
    // 已保存的修订等待明确的「继续制作」：run 不会隐式继续。
    if(initial.lifecycle?.continuation??initial.awaitingContinue)return {reason:'continue_required',session:initial};
    if((initial.lifecycle?.control??initial.generationControl)!=='active')return {reason:'paused',session:initial};
@@ -334,23 +408,27 @@ export async function executeHeadless(root:string,args:string[],context:Context=
     return until==='candidates'&&snapshot.intake?.selected?'already_selected':null;
    };
    const reached=boundary(initial);
-   if(reached==='reviewed'||reached==='completed'&&initial.state!=='failed')return {reason:reached,session:initial};
+   if(reached==='reviewed'||reached==='completed'&&initial.state!=='failed'){
+    runOutcome=reached==='reviewed'?'hold':'release';
+    return {reason:reached,session:initial};
+   }
    if(!initial.lifecycle||initial.lifecycle.service==='unconfigured'){
     const status=await app.services.generation.status();
     if(!status.configured)throw new CliCommandError('PROVIDER_UNAVAILABLE',status.message||'Provider is not ready.',2,{lifecycle:initial.lifecycle});
    }
    const serviceBlocked=(snapshot:any)=>snapshot.lifecycle&&(['production','preparation'].includes(snapshot.lifecycle.phase)||snapshot.lifecycle.preparationRefresh==='pending')&&snapshot.lifecycle.service!=='available';
    if(initial.state==='failed'||serviceBlocked(initial)||preparationRefreshFault(initial))return {reason:'blocked',session:initial};
-   if(reached)return {reason:reached,session:initial};
+   if(reached){runOutcome='hold';return {reason:reached,session:initial};}
    if(until==='candidates')need(initial.intake,'BOUNDARY_UNAVAILABLE','Candidates require an intake story.');
    if(until==='prepared'&&!initial.intake&&initial.lifecycle?.preparationRefresh!=='pending')need(initial.selection.narrativeDetail&&initial.selection.length!=='auto','BOUNDARY_UNAVAILABLE','This legacy story has no preparation gate; use --until reviewed or completed.');
-   process.once('SIGINT',interrupt);process.once('SIGTERM',interrupt);context.signal?.addEventListener('abort',interrupt,{once:true});
-   if(context.signal?.aborted)interrupt();
+   if(abort.signal.aborted)throw new CliCommandError('INTERRUPTED','Run interrupted before dispatch.',130,{resumesAfterRestart:false});
+   runScope?.setPermission(until==='completed'?'all':'text');dispatchGranted=true;
    timer=setTimeout(()=>{timedOut=true;interrupt();},timeout*1000);
    const viewerId=randomUUID();app.startGeneration();let snapshot=initial;
    try{
     while(!abort.signal.aborted){
      snapshot=await app.services.production!.request(app.services.ownerId,target!,viewerId,0,false);
+     if(abort.signal.aborted)break;
      const intake=snapshot.intake;
      const dagReview=until==='reviewed'?snapshot.lifecycle?.review:null;
      const reached=boundary(snapshot);
@@ -361,10 +439,10 @@ export async function executeHeadless(root:string,args:string[],context:Context=
       :snapshot.state==='failed'||serviceBlocked(snapshot)||preparationRefreshFault(snapshot)?'blocked'
       :reached||(until==='candidates'&&intake?.batches.some((batch:any)=>batch.stories.length)?'candidates'
        :intake?.phase==='confirming'?'prepared':intake?.phase==='choosing'&&intake.search.state!=='searching'?'choice':dagReview==='attention'?'blocked':null);
-     if(reason)return {reason,session:snapshot};await delay(80,undefined,{signal:abort.signal}).catch(()=>{});
+     if(reason){runOutcome=reason==='completed'?'release':'hold';return {reason,session:snapshot};}await delay(80,undefined,{signal:abort.signal}).catch(()=>{});
     }
-    throw new CliCommandError(timedOut?'TIMEOUT':'INTERRUPTED',timedOut?'Run timed out; saved checkpoints are retained.':'Run interrupted; saved checkpoints are retained.',timedOut?5:130,{session:snapshot});
-   }finally{await app.services.production!.leave(app.services.ownerId,target!,viewerId);}
+    throw new CliCommandError(timedOut?'TIMEOUT':'INTERRUPTED',timedOut?'Run timed out; saved checkpoints are retained.':resumesAfterRestart?'Run interrupted because the library service stopped; production resumes when it restarts.':'Run interrupted; saved checkpoints are retained.',timedOut?5:130,{session:snapshot,resumesAfterRestart});
+   }finally{runScope?.finish(runOutcome);await app.services.production!.leave(app.services.ownerId,target!,viewerId);}
   }
   need(command==='stories','UNKNOWN_COMMAND','Use help --json for available commands.');
   if(action==='list')return await api(app,'GET','sessions');
@@ -378,7 +456,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
     need(!v.draft&&(input as any).draft===undefined,'INVALID_INPUT','--draft applies only to text copy.');
     const sourceId=(input as any).sourceId;need(typeof sourceId==='string'&&uuid(sourceId),'SOURCE_REQUIRED','Specify sourceId in JSON input.');
     const current=await api(app,'GET',`sessions/${id}`);
-    try{return {session:await copySavedStory(app,root,directory,path.resolve(source),sourceId,id,current.selection.artStyle,{images:true,existing:true})};}
+    try{return {session:await copySavedStory(app,root,directory,resolve(source),sourceId,id,current.selection.artStyle,{images:true,existing:true})};}
     catch(error){if(error instanceof ReaderError)throw new CliCommandError(error.status===409?'CONFLICT':'COPY_FAILED',error.message,error.status>=500?4:2,{storyId:id});throw error;}
    }
    const draft=(input as any).draft;
@@ -390,7 +468,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    need(!(v['copy-images']&&v['no-copy-images']),'INVALID_INPUT','Choose --copy-images or --no-copy-images.');
    const flag=v['copy-images']?true:v['no-copy-images']?false:undefined;
    need(choice===undefined||flag===undefined||choice===flag,'INVALID_INPUT','copyImages conflicts with the command-line image choice.');
-   try{return {requestId,session:await copySavedStory(app,root,directory,path.resolve(source),id,requestId,(input as any).artStyle,{images:choice??flag,draft:copyDraft})};}
+   try{return {requestId,session:await copySavedStory(app,root,directory,resolve(source),id,requestId,(input as any).artStyle,{images:choice??flag,draft:copyDraft})};}
    catch(error){if(error instanceof ReaderError)throw new CliCommandError(error.status===409?'CONFLICT':'COPY_FAILED',error.message,error.status>=500?4:2,{requestId});throw error;}
   }
   const route=`sessions/${id}`,data={...(input as any)};
@@ -408,7 +486,7 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    const revision={requestId,token:data.token,changes:data.changes||Object.fromEntries(Object.entries(data).filter(([key])=>!['token','paused','requestId'].includes(key))),paused:data.paused??false};
    const cover=value('cover');
    if(!cover)return {requestId,session:await api(app,'POST',route+'/revisions',revision)};
-   const file=path.resolve(context.cwd||process.cwd(),cover),info=await stat(file).catch(()=>null);
+   const file=resolve(cover),info=await stat(file).catch(()=>null);
    need(info?.isFile()&&info.size>0&&info.size<=revisionCoverMaxBytes,'INVALID_COVER','Choose a local PNG, JPEG or WebP image up to 12 MiB.');
    const form=new FormData();form.set('revision',JSON.stringify(revision));form.set('cover',new Blob([await readFile(file)]),path.basename(file));
    return {requestId,session:await api(app,'POST',route+'/revisions',form)};
@@ -424,19 +502,35 @@ export async function executeHeadless(root:string,args:string[],context:Context=
    return {requestId,session:await api(app,'POST',route+'/setup',{...change,requestId,generation})};
   }
   throw new CliCommandError('UNKNOWN_COMMAND','Use help --json for available commands.');
+ }catch(error){
+  // 运行被中断后，后续读取因停服被拒等错误按中断返回，回执说明是否在重启后续跑。
+  const settled=error instanceof CliCommandError&&['INTERRUPTED','TIMEOUT'].includes(error.code);
+  if(running&&abort.signal.aborted&&!settled)throw new CliCommandError(timedOut?'TIMEOUT':'INTERRUPTED',timedOut?'Run timed out; saved checkpoints are retained.':'Run interrupted; saved checkpoints are retained.',timedOut?5:130,{resumesAfterRestart});
+  throw error;
  }finally{
+  runScope?.finish(runOutcome);
   if(timer)clearTimeout(timer);process.off('SIGINT',interrupt);process.off('SIGTERM',interrupt);context.signal?.removeEventListener('abort',interrupt);
-  try{if(app){app.stopGeneration();abort.abort();if(running)await Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);await app.close();}}finally{removeDiagnostics();await release();}
+  try{if(app&&!shared){
+   app.stopGeneration();abort.abort();
+   // 短时服务按命令打开应用。等待故事卡或索引取消后完成清理，再允许下一条命令或桌面接入。
+   if(taskSignal)await app.drainForStop(()=>false).settled;
+   if(running)await Promise.all([stopCodexProcesses(),stopClaudeProcesses()]);
+   await app.close();
+  }}finally{removeDiagnostics();await release();}
  }
+}
+export function cliFailure(error:unknown){
+ const known=error instanceof CliCommandError,skillCode=(error as NodeJS.ErrnoException)?.code,code=known?error.code:typeof skillCode==='string'&&/^SKILL_[A-Z_]+$/.test(skillCode)?skillCode:(error as NodeJS.ErrnoException)?.code==='EEXIST'?'TARGET_EXISTS':(error as Error)?.message==='DATA_BUSY'?'LIBRARY_BUSY':(error as Error)?.name==='ZodError'?'INVALID_INPUT':'COMMAND_FAILED';
+ const message=known?error.message:code==='TARGET_EXISTS'?'Output already exists.':code==='LIBRARY_BUSY'?'Stop all services using this library and retry.':code==='INVALID_INPUT'?'Input does not match the production schema.':/^(EXPORT_|BACKUP_|SKILL_|LIBRARY_UPGRADE_REQUIRED|LIBRARY_NEWER_SCHEMA)/.test((error as Error)?.message||'')?(error as Error).message:'Command failed; check paths, provider configuration and diagnostics.';
+ return {code,message,exitCode:known?error.exitCode:1,...(known&&error.details?{details:error.details}:{})};
 }
 export async function routeHeadless(root:string,args:string[],context:Pick<Context,'skillRuntime'>={}){
  if(!commandNames.has(args[0])&&!(args[0]&&!args[0].startsWith('-'))&&!(args.includes('--json')&&args.includes('--help')))return false;
  const saved={log:console.log,info:console.info,warn:console.warn};
  console.log=console.info=console.warn=(...values:unknown[])=>console.error(...values);
- try{const data=await executeHeadless(root,args[0]?.startsWith('-')?['help',...args]:args,context);const plainText=args[0]==='skill'&&args[1]==='show'||args[0]==='books'&&args[1]==='search'&&args.includes('--brief')&&!args.includes('--help');process.stdout.write(plainText&&!args.includes('--json')?(data as {text:string}).text:JSON.stringify({schemaVersion:1,ok:true,data})+'\n');}
+ try{const data=await executeHeadless(root,args[0]?.startsWith('-')?['help',...args]:args,{...context,serviceClient:true});const plainText=args[0]==='skill'&&args[1]==='show'||args[0]==='books'&&args[1]==='search'&&args.includes('--brief')&&!args.includes('--help');process.stdout.write(plainText&&!args.includes('--json')?(data as {text:string}).text:JSON.stringify({schemaVersion:1,ok:true,data})+'\n');}
  catch(error){
-  const known=error instanceof CliCommandError,skillCode=(error as NodeJS.ErrnoException)?.code,code=known?error.code:typeof skillCode==='string'&&/^SKILL_[A-Z_]+$/.test(skillCode)?skillCode:(error as NodeJS.ErrnoException)?.code==='EEXIST'?'TARGET_EXISTS':(error as Error)?.message==='DATA_BUSY'?'LIBRARY_BUSY':(error as Error)?.name==='ZodError'?'INVALID_INPUT':'COMMAND_FAILED';
-  const message=known?error.message:code==='TARGET_EXISTS'?'Output already exists.':code==='LIBRARY_BUSY'?'Stop all services using this library and retry.':code==='INVALID_INPUT'?'Input does not match the production schema.':/^(EXPORT_|BACKUP_|SKILL_|LIBRARY_UPGRADE_REQUIRED|LIBRARY_NEWER_SCHEMA)/.test((error as Error)?.message||'')?(error as Error).message:'Command failed; check paths, provider configuration and diagnostics.';
-  process.stdout.write(JSON.stringify({schemaVersion:1,ok:false,error:{code,message,...(known&&error.details?{details:error.details}:{})}})+'\n');process.exitCode=known?error.exitCode:1;
+  const {exitCode,...failure}=cliFailure(error);
+  process.stdout.write(JSON.stringify({schemaVersion:1,ok:false,error:failure})+'\n');process.exitCode=exitCode;
  }finally{Object.assign(console,saved);}return true;
 }

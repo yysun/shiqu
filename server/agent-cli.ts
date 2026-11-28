@@ -3,6 +3,7 @@ import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {realpathSync} from 'node:fs';
 import {runCli} from './cli.ts';
+export {runCliServiceProcess} from './cli.ts';
 if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1])).href){
  const cli=fileURLToPath(import.meta.url);
  const root=path.resolve(path.dirname(cli),'../..');

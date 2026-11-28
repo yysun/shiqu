@@ -15,18 +15,27 @@ export type LandscapePdfMark={setId:string;label:string;revision?:number;draft:b
 /** 横图套图留在发起版本，故事与分镜是印刷时使用的快照。 */
 export type LandscapePrint={id:string;story:Story;plan:Plan;frameKeys?:string[];control:'active'|'paused';modelSnapshot?:ModelSnapshot};
 export type LandscapeCommand={startToken:string;artStyle?:ArtStyleId}|{retryToken:string}|{modelToken:string}|{control:'pause'|'resume';printId?:string}|{discardPrintId:string};
+export type CliStoryScope={
+ setPermission(permission:'none'|'text'|'all'):void;
+ finish(result:'restore'|'release'|'hold',storyId?:string):void;
+};
+/** 快照读者：阅读器把 CLI 留下的等待投影为「已保存，等待继续」，CLI 读取原状态。 */
+export type SnapshotAudience='reader'|'cli';
 export interface ReaderProduction{
+ reserveCliStories?(ownerId:string,ids:string[]):CliStoryScope;
+ beginCliRun?(ownerId:string,id:string,draw:boolean):Promise<CliStoryScope>;
+ continueCliStory?(ownerId:string,id:string):()=>void;
  referencesChanged?():void;
  wake():void;
- control(ownerId:string,id:string,action:ProductionAction,requestId?:string,checkService?:boolean):Promise<SessionView>;
- overrideReview(ownerId:string,id:string,command?:ReviewOverride):Promise<SessionView>;
+ control(ownerId:string,id:string,action:ProductionAction,requestId?:string,checkService?:boolean,accepted?:()=>void):Promise<SessionView>;
+ overrideReview(ownerId:string,id:string,command?:ReviewOverride,accepted?:()=>void):Promise<SessionView>;
  request(ownerId:string,id:string,viewerId:string,page:number,retry?:boolean):Promise<SessionView>;
  leave(ownerId:string,id:string,viewerId:string):Promise<void>;
  managed(ownerId:string,id:string):Promise<boolean>;
- shelfSnapshots(ownerId:string,includeTimings?:boolean):Promise<SessionView[]>;
+ shelfSnapshots(ownerId:string,includeTimings?:boolean,audience?:SnapshotAudience):Promise<SessionView[]>;
  deletedLifecycles?(ownerId:string):Map<string,ProductionLifecycle>;
- snapshot(ownerId:string,id:string):Promise<SessionView>;
- recover(ownerId:string,id:string,command:RecoveryRequest,checkService?:boolean):Promise<SessionView>;
+ snapshot(ownerId:string,id:string,audience?:SnapshotAudience):Promise<SessionView>;
+ recover(ownerId:string,id:string,command:RecoveryRequest,checkService?:boolean,accepted?:()=>void):Promise<SessionView>;
  checkImage(ownerId:string,id:string,page:number,image:string):Promise<SessionView>;
  landscapeStatus(ownerId:string,id:string):Promise<LandscapeStatus>;
  /** 制作 DAG 故事的审片状态：approved 可绘图，attention 需读者处理，pending 仍在审片；非 DAG 故事为 null。 */

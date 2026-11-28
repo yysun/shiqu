@@ -30,7 +30,7 @@ import {suggestionBatchSchema,freshSuggestions,maxSuggestionBatches} from '../li
 import type {SuggestionBatch,SuggestionProgress} from '../lib/reader-suggestions.ts';
 import {readerMaxFrames} from '../lib/reader-limits.ts';
 import {productionViewerLeaseMs} from '../lib/reader-production.ts';
-import type {EarlierLandscapeWork,LandscapeCommand,LandscapePrintSet,LandscapeStatus,ReaderProduction} from '../lib/reader-production.ts';
+import type {EarlierLandscapeWork,LandscapeCommand,LandscapePrintSet,LandscapeStatus,ReaderProduction,SnapshotAudience} from '../lib/reader-production.ts';
 import {LandscapePrints,currentLandscapePrint,landscapePrintKind,landscapeVersions} from './landscape-print.ts';
 import {JobYield,ProductionQueue,productionJobId} from './production-queue.ts';
 import type {ProductionJob,JobSpec} from './production-queue.ts';
@@ -74,6 +74,7 @@ export const productionRevisionSql={
 };
 /** 模型快照服务：记录当前设置的快照；按快照构造提供方，快照服务不可用时返回 null。 */
 export type SnapshotService={current():ModelSnapshot|undefined;provider(snapshot:ModelSnapshot):ReaderProvider|null};
+type CliScope={active:boolean;permission:'none'|'text'|'all'};
 export type ProductionOptions={snapshots?:SnapshotService;textProvider?:ReaderProvider;imageWorkers?:number;now?:()=>number;leaseMs?:number;tickMs?:number;autoStart?:boolean;targetSessionId?:string;portraitOnly?:boolean;stopBeforeImages?:boolean};
 type Options=ProductionOptions;
 const maxAutomaticAttempts=3;
@@ -111,6 +112,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private scheduled:ReturnType<typeof setImmediate>|undefined;
  private ticking:Promise<void>|undefined;
  private stopping=false;
+ private dispatchPaused=false;
  private closed=false;
  private tickFailing=false;
  private readonly unreadable=new Set<string>();
@@ -123,6 +125,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  private referenceGeneration=0;
  private readonly pruneKeys=new Map<string,PruneKey>();
  private supersededJobs=new Set<string>();
+ private readonly cliScopes=new Map<string,CliScope>();
  private database:Database;
  private provider:ReaderProvider;
  private textFailure?:{provider:ReaderProvider;service:ProductionService;retryAt:number};
@@ -135,18 +138,24 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(options.targetSessionId&&!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(options.targetSessionId))throw Error('INVALID_TARGET_SESSION');
   this.database=database;this.provider=provider;this.media=media;this.options=options;
   this.clock=options.now||Date.now;this.repository=new ReaderRepository(database);
+  const recoverScope=(db:Pick<SyncStatements,'all'>)=>db.all<{session_id:string}>(`SELECT c.session_id FROM reader_commands c JOIN stories s
+   ON s.id=c.session_id AND s.user_id=c.owner_id WHERE c.action='cli-hold'`);
+  if(database.transaction){
+   const held=database.readTransaction?.(recoverScope)??database.transaction(recoverScope);
+   for(const row of held)this.cliScopes.set(row.session_id,{active:false,permission:'none'});
+  }
   this.queue=new ProductionQueue(database,{
    targetSessionId:options.targetSessionId,
    ownsJob:options.portraitOnly?job=>job.kind!==landscapePrintKind:undefined,
    limits:{search:1,text:1,image:options.imageWorkers??3,landscape:1},now:this.clock,leaseMs:options.leaseMs,
-   canRun:job=>this.canRun(job),canClaim:(db,job,now)=>this.checkDispatch(db,job,now)==='allow',resumeInterrupted:job=>this.resumeInterrupted(job),onSettled:()=>{for(const id of this.jobProviders.keys())if(!this.queue.tasks.has(id))this.jobProviders.delete(id);this.wake();},
+   canRun:job=>this.canRun(job),canClaim:(db,job,now)=>!this.dispatchPaused&&this.checkDispatch(db,job,now)==='allow',resumeInterrupted:job=>this.resumeInterrupted(job),onSettled:()=>{for(const id of this.jobProviders.keys())if(!this.queue.tasks.has(id))this.jobProviders.delete(id);this.wake();},
    // 暂停、删除的故事不派发。DAG 任务按节点故障独立阻断。
    candidateFilter:`NOT EXISTS(SELECT 1 FROM production_migration_diagnostics m WHERE m.session_id=j.session_id AND m.owner_id=j.owner_id)
    AND NOT EXISTS(SELECT 1 FROM stories s WHERE s.id=j.session_id AND s.user_id=j.owner_id AND (
     (j.kind='${landscapePrintKind}' AND (CASE WHEN json_valid(s.document) THEN COALESCE(json_extract(s.document,'$.landscapePrints[#-1].control'),'')!='active' ELSE 1 END OR ${landscapePrintHiddenSql('s')})) OR
     (j.kind!='${landscapePrintKind}' AND s.generation_control!='active') OR
     EXISTS(SELECT 1 FROM library_deletions d WHERE d.story_id=s.id AND d.user_id=s.user_id)))`,
-   skipCandidate:job=>!!options.targetSessionId&&job.session_id!==options.targetSessionId||!!options.stopBeforeImages&&(job.pool==='image'||job.kind===landscapePrintKind)||job.kind!==landscapePrintKind&&this.supersededJobs.has(job.session_id),
+   skipCandidate:job=>this.dispatchPaused||this.cliBlocks(job)||!!options.targetSessionId&&job.session_id!==options.targetSessionId||!!options.stopBeforeImages&&(job.pool==='image'||job.kind===landscapePrintKind)||job.kind!==landscapePrintKind&&this.supersededJobs.has(job.session_id),
    safeError:(error,job)=>error instanceof ReaderError?error.message:(this.jobProviders.get(job.id)||this.provider).safeError(error),
    errorCode:error=>errorCode(error),
    terminal:error=>error instanceof ReaderError&&error.status<500,
@@ -162,6 +171,66 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(options.autoStart!==false)this.start();
  }
  start(){if(this.enabled||this.stopping||this.closed)return;this.enabled=true;this.timer=setInterval(()=>this.wake(),this.options.tickMs||1000);this.timer.unref();this.wake();}
+ // CLI 的保存和有限运行共享生产调度器；横图沿用独立的读者授权。
+ private cliBlocks(job:ProductionJob){
+  const scope=this.cliScopes.get(job.session_id);
+  return job.kind!==landscapePrintKind&&(scope?.permission==='none'||scope?.permission==='text'&&job.pool==='image');
+ }
+ private persistCliScope(db:SyncStatements,ownerId:string,id:string,hold:boolean){
+  const request='cli-hold:'+id;
+  if(hold){
+   const now=this.clock();
+   db.run(`INSERT INTO reader_commands(request_id,owner_id,session_id,action,fingerprint,payload,created_at,updated_at)
+    VALUES(?,?,?,'cli-hold','cli-hold','{}',?,?) ON CONFLICT(owner_id,request_id) DO NOTHING`,request,ownerId,id,now,now);
+  }else db.run("DELETE FROM reader_commands WHERE request_id=? AND owner_id=? AND action='cli-hold'",request,ownerId);
+ }
+ reserveCliStories(ownerId:string,ids:string[]){
+  const previous=new Map([...new Set(ids)].map(id=>[id,this.cliScopes.get(id)]));
+  if([...previous.values()].some(scope=>scope?.active))throw new ReaderError(409,'此故事有正在执行的 CLI 制作或保存。');
+  transact(this.database,db=>{for(const id of previous.keys())this.persistCliScope(db,ownerId,id,true);});
+  const scopes=new Map<string,CliScope>();
+  for(const id of previous.keys()){
+   const scope:CliScope={active:true,permission:'none'};scopes.set(id,scope);this.cliScopes.set(id,scope);
+  }
+  return {
+   setPermission:(permission:CliScope['permission'])=>{for(const scope of scopes.values())scope.permission=permission;},
+   finish:(result:'restore'|'release'|'hold',storyId?:string)=>{
+    const settle=[...scopes].filter(([id,scope])=>this.cliScopes.get(id)===scope&&scope.active);
+    if(!settle.length)return;
+    const hold=(id:string)=>result==='hold'&&(!storyId||storyId===id);
+    const restore=(id:string)=>result==='restore'||result==='hold'?previous.get(id):undefined;
+    transact(this.database,db=>{for(const [id] of settle)if(!hold(id)&&!restore(id))this.persistCliScope(db,ownerId,id,false);});
+    for(const [id,scope] of settle){
+     if(hold(id)){scope.active=false;scope.permission='none';continue;}
+     const prior=restore(id);
+     if(prior)this.cliScopes.set(id,prior);else this.cliScopes.delete(id);
+    }
+    this.wake();
+   },
+  };
+ }
+ async beginCliRun(ownerId:string,id:string,draw:boolean){
+  const scope=this.reserveCliStories(ownerId,[id]);
+  try{
+   if(!draw){
+    const claimed=(await this.database.prepare("SELECT id,lease_until FROM production_jobs WHERE session_id=? AND owner_id=? AND pool='image' AND state='running'")
+     .bind(id,ownerId).all<{id:string;lease_until:number}>()).results;
+    if(claimed.some(job=>this.queue.tasks.has(job.id)||job.lease_until>this.clock()))
+     throw new ReaderError(409,'已有绘图正在执行。请等当前任务完成后再要求停在审片。');
+   }
+   return scope;
+  }catch(error){scope.finish('restore');throw error;}
+ }
+ continueCliStory(ownerId:string,id:string){
+  const scope=this.cliScopes.get(id);
+  if(scope?.active)throw new ReaderError(409,'此故事正在由 CLI 制作，可以暂停或停止。');
+  return ()=>{
+   if(scope&&this.cliScopes.get(id)===scope){
+    transact(this.database,db=>this.persistCliScope(db,ownerId,id,false));
+    this.cliScopes.delete(id);this.wake();
+   }
+  };
+ }
  private async find(id:string,ownerId:string){return this.database.prepare('SELECT * FROM story_rows stories WHERE id=? AND user_id=?').bind(id,ownerId).first<SessionRow>();}
  private async raw(id:string,ownerId:string){
   const row=await this.find(id,ownerId);
@@ -312,34 +381,36 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(await this.repository.superseded(row.id,row.user_id))return false;
   return row.generation_control==='active'&&!await this.database.prepare('SELECT story_id FROM library_deletions WHERE story_id=? AND user_id=?').bind(row.id,row.user_id).first();
  }
- async control(ownerId:string,id:string,action:ProductionAction,requestId?:string,checkService=false){
+ async control(ownerId:string,id:string,action:ProductionAction,requestId?:string,checkService=false,accepted?:()=>void){
   await this.repository.get(id,ownerId);
   // 控制只登记本次工作。恢复和继续看当前阶段，重新准备只需要文字模型；实际发送仍由队列核对。
   if(checkService&&['resume','continue','reprepare'].includes(action)&&!(requestId&&await commandReceipt(this.database,ownerId,requestId))){
    const service=action==='reprepare'?this.serviceAvailability(undefined,'text'):(await this.snapshot(ownerId,id)).lifecycle?.service;
    if(service==='unconfigured')throw new ReaderError(503,'请先配置此步骤的生成服务：使用本机或可信局域网地址打开「设置 → 生成服务与模型」。');
   }
+  const result=()=>{accepted?.();return this.snapshot(ownerId,id);};
   if(action==='reprepare'){
    if(!requestId)throw new ReaderError(400,'重新准备需要提交操作编号。');
    this.dag.reprepare(ownerId,id,requestId,this.stopping);
-   return this.snapshot(ownerId,id);
+   return result();
   }
   // 「继续制作」的已接受编号先于其他核对重放。
   if(action==='apply-model'){
    if(!requestId)throw new ReaderError(400,'应用模型设置需要提交操作编号。');
-   await this.dag.applyCurrentModel(ownerId,id,requestId,this.stopping);return this.snapshot(ownerId,id);
+   await this.dag.applyCurrentModel(ownerId,id,requestId,this.stopping);return result();
   }
   if(action==='continue'){
    if(!requestId)throw new ReaderError(400,'继续制作需要提交操作编号。');
-   this.dag.continue(ownerId,id,requestId,this.stopping);
-   return this.snapshot(ownerId,id);
+   const hold=this.cliScopes.get(id);
+   this.dag.continue(ownerId,id,requestId,this.stopping,!!hold&&!hold.active);
+   return result();
   }
   if(requestId)await authorizeControl(this.database,ownerId,id,requestId,action,this.clock(),this.stopping);
   else{
    if(this.stopping)throw new ReaderError(503,'制作服务正在停止，请稍后重新打开故事。');
    await this.repository.control(id,ownerId,action);
   }
-  this.wake();return this.snapshot(ownerId,id);
+  this.wake();return result();
  }
  async managed(ownerId:string,id:string){const saved=await this.database.prepare('SELECT document FROM stories WHERE id=? AND user_id=?').bind(id,ownerId).first<{document:string}>();if(saved&&(decodeDocument(saved)).intake)return true;return !!await this.database.prepare("SELECT id FROM production_jobs WHERE owner_id=? AND session_id=? AND kind NOT IN ('landscape-image','landscape-print') LIMIT 1").bind(ownerId,id).first();}
  async request(ownerId:string,id:string,viewerId:string,page:number,retry=false){
@@ -355,7 +426,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   this.wake();return this.snapshot(ownerId,id);
  }
  /** 放行：只更新当前需读者处理的审片结论，可绘图仍由全部结论推导。 */
- async overrideReview(ownerId:string,id:string,command?:ReviewOverride){
+ async overrideReview(ownerId:string,id:string,command?:ReviewOverride,accepted?:()=>void){
   if(!command)throw new ReaderError(400,'放行需要提交操作编号。');
   const row=await this.repository.get(id,ownerId);
   const receipt=await commandReceipt(this.database,ownerId,command.requestId);
@@ -363,6 +434,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(!receipt&&await this.repository.superseded(id,ownerId))throw new ReaderError(409,latestVersionMessage);
   if(!this.parsed(row)?.doc.dag)throw new ReaderError(409,'这篇故事没有待处理的审片问题。');
   await this.dag.override(ownerId,id,command);
+  if(!receipt)accepted?.();
   this.wake();return this.snapshot(ownerId,id);
  }
  async leave(ownerId:string,id:string,viewerId:string){
@@ -398,7 +470,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   * 恢复：有任务的故障以本授权重新执行该任务（任务的工作已过时则不付费，由调度重新安排）；
   * 没有任务的故障（图片丢失、转换的旧故障）直接解除，引擎随后重做对应节点。
   */
- async recover(ownerId:string,id:string,command:RecoveryRequest,checkService=false):Promise<SessionView>{
+ async recover(ownerId:string,id:string,command:RecoveryRequest,checkService=false,accepted?:()=>void):Promise<SessionView>{
   const row=await this.repository.get(id,ownerId);
   const replay=await commandReceipt(this.database,ownerId,command.requestId);
   if(replay){
@@ -416,7 +488,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   if(repair){
    if(checkService)await this.requireWorkService('text');
    this.dag.grantRepairBudget(row,command.requestId,command.faultId);
-   this.wake();
+   accepted?.();this.wake();
    return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:command.requestId,status:'succeeded',error:null}};
   }
   const target=fault!,doc=decodeDocument(row);
@@ -424,6 +496,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   // 图片丢失的恢复：文件在点击前已被恢复时，核对后免费解除，不重新绘制、不付费。
   if(probe&&await this.dag.checkImage(row,probe.page,probe.image,{recovery:command})){
     const receipt=(await commandReceipt(this.database,ownerId,command.requestId))!;
+    accepted?.();
     return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:receipt.request_id,status:receipt.status,error:receipt.error}};
   }
   const restored=await this.dag.restorePortraitDrawing(row,target,command);
@@ -435,22 +508,23 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const receipt=restored??(job
    ?await authorizeRecovery(this.database,{ownerId,sessionId:id,...command,jobs:[job.id],resolutionJob:job.id,basis:row},this.clock())
    :await authorizeRecovery(this.database,{ownerId,sessionId:id,...command,jobs:[],resolutionJob:'',resolved:true,basis:row},this.clock()));
+  accepted?.();
   if(!job)await this.dag.settleState(id,ownerId);
   // 故障表的变化不改变故事的内容修订号：清除本篇的重建记录，下一轮重新安排工作。
   this.rebuildKeys.delete(id);
   this.wake();return {...await this.snapshot(ownerId,id),recoveryReceipt:{requestId:receipt.request_id,status:receipt.status,error:receipt.error}};
  }
- async snapshot(ownerId:string,id:string):Promise<SessionView>{
+ async snapshot(ownerId:string,id:string,audience:SnapshotAudience='reader'):Promise<SessionView>{
   const [input]=this.snapshotInputs(ownerId,id);
   if(!input)throw new ReaderError(404,'这篇故事不在你的书架里');
-  return this.liveSnapshotView(input,this.savedView(input.row),true);
+  return this.liveSnapshotView(input,this.savedView(input.row),true,audience);
  }
- async shelfSnapshots(ownerId:string,includeTimings=false):Promise<SessionView[]>{
+ async shelfSnapshots(ownerId:string,includeTimings=false,audience:SnapshotAudience='reader'):Promise<SessionView[]>{
   const inputs=this.snapshotInputs(ownerId);
   const snapshots=await Promise.all(inputs.flatMap(input=>{
    let saved:SessionView;
    try{saved=this.savedView(input.row);}catch{return [];}
-   return [this.liveSnapshotView(input,saved,includeTimings)];
+   return [this.liveSnapshotView(input,saved,includeTimings,audience)];
   }));
   // 整张书架读取后清掉已不在书架上的缓存，缓存规模随书架而定。
   const shown=new Set(inputs.map(input=>input.row.id));
@@ -467,9 +541,8 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
  /** 保存视图只取决于故事行本身。 */
  private savedView(row:SessionRow){return reuseUnchanged(this.savedViews,row.id,Object.values(row),()=>view(row));}
- private async liveSnapshotView(input:SnapshotInputs,saved:SessionView,includeTimings:boolean){
-
-  return this.snapshotView(input,saved,includeTimings);
+ private async liveSnapshotView(input:SnapshotInputs,saved:SessionView,includeTimings:boolean,audience:SnapshotAudience){
+  return this.snapshotView(input,saved,includeTimings,audience);
  }
  deletedLifecycles(ownerId:string){
   const lifecycles=new Map<string,NonNullable<SessionView['lifecycle']>>();
@@ -532,13 +605,13 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   };
   return this.database.readTransaction?.(read)??transact(this.database,read);
  }
- private snapshotView(input:SnapshotInputs,saved:SessionView,includeTimings:boolean):SessionView{
+ private snapshotView(input:SnapshotInputs,saved:SessionView,includeTimings:boolean,audience:SnapshotAudience='reader'):SessionView{
   const {row,now,allJobs,superseded,replacementOpen,hasViewer}=input;
   const id=row.id,parsed=this.parsed(row)!;
   const background=row.generation_control==='active'&&!superseded&&(!this.options.targetSessionId||id===this.options.targetSessionId);
   const dag=parsed.doc.dag;
   const portraitJobs=allJobs.filter(job=>this.generationCurrent(row,job)&&(job.kind!=='discover'||this.searchCurrent(row,searchRound(job))));
-  const eligible=background&&portraitJobs.some(job=>job.state==='queued'&&(job.kind!=='discover'||hasViewer));
+  const eligible=background&&portraitJobs.some(job=>!this.cliBlocks(job)&&job.state==='queued'&&(job.kind!=='discover'||hasViewer));
   const search=this.searches.get(id),progress=saved.generationProgress!;
   const jobsById=new Map(allJobs.map(job=>[job.id,job]));
   const faults=input.faults;
@@ -557,6 +630,10 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   for(const target of new Set(dag?.issues?.filter(issue=>issue.requiresReplan&&blockedTargets.has(issue.target)).map(issue=>issue.target))){
    reviewAttention.push({target,reason:'replan'});
   }
+  // 阅读器视图：CLI 留下的等待正阻止排队工作时，显示为「已保存，等待继续」。有故障、审片阻断或暂停时保留各自的处理入口。
+  const hold=this.cliScopes.get(id);
+  const cliHold=audience==='reader'&&!!hold&&!hold.active&&background&&!saved.awaitingContinue&&complete!==true&&!blocking?.id
+   &&!views.some(fault=>fault.state==='pending')&&!searchFault&&portraitJobs.some(job=>this.cliBlocks(job)&&job.state==='queued'&&(job.kind!=='discover'||hasViewer));
   const preparing=!!dag?.repreparing||!!parsed.doc.intake&&parsed.doc.intake.phase!=='confirmed';
   const service=review==='approved'&&!preparing?this.serviceAvailability(dag?.modelSnapshot):this.serviceAvailability(undefined,'text');
   const currentImage=this.snapshotNow();
@@ -582,7 +659,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const replacement=reselection&&intake?{parentId:reselection.parentId,generation:intake.generation,commit:{draftCurrent:!superseded,
    generationCurrent:true,candidateExists:configured&&intake.batches.some(batch=>batch.stories.length>0),
    ...(input.replacementBasis??{basisCurrent:false,requirementsCurrent:false})}}:undefined;
-  const lifecycle=productionLifecycle({...saved,complete:savedComplete,generationControl:row.generation_control,superseded,deleted:input.deleted,replacementOpen:!!parsed.doc.reselection||replacementOpen,
+  const lifecycle=productionLifecycle({...saved,...(cliHold?{awaitingContinue:true as const}:{}),complete:savedComplete,generationControl:row.generation_control,superseded,deleted:input.deleted,replacementOpen:!!parsed.doc.reselection||replacementOpen,
    faults:[...projectedFaults,...(searchFault?[searchFault]:[])],reviewAttention,review,service,queued:eligible||saved.intake?.phase==='discovering'&&saved.intake.search.state==='searching',
    now,order:dag?.order??[],pendingImageChecks,optionalWork:false,stopping:this.stopping,canReprepare,
    reprepareService:this.serviceAvailability(undefined,'text'),repreparing:!!dag?.repreparing,
@@ -615,7 +692,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   const landscapeWork=work&&{...work,...(model?.service!=='available'?model:{})};
   const hasLandscape=!!print;
   const state=savedComplete?'completed':active.length?'running':'idle';
-  const session:SessionView={...saved,state,error:null,lifecycle,...(hasLandscape?{hasLandscape:true as const}:{}),...(landscapeWork?{landscapeWork}:{}),...(release&&lifecycle.actions.some(action=>action.event==='override-review')?{reviewOverride:{faultId:release.faultId,title:release.title,reflection:release.reflection,needsEnding:release.needsEnding}}:{}),...(blocking?.issues.length?{reviewIssues:blocking.issues}:{}),...(superseded?{superseded:true}:{}),...(snapshotUnavailable?{snapshotUnavailable:true as const}:{}),
+  const session:SessionView={...saved,...(cliHold?{awaitingContinue:true as const,cliHold:true as const}:{}),state,error:null,lifecycle,...(hasLandscape?{hasLandscape:true as const}:{}),...(landscapeWork?{landscapeWork}:{}),...(release&&lifecycle.actions.some(action=>action.event==='override-review')?{reviewOverride:{faultId:release.faultId,title:release.title,reflection:release.reflection,needsEnding:release.needsEnding}}:{}),...(blocking?.issues.length?{reviewIssues:blocking.issues}:{}),...(superseded?{superseded:true}:{}),...(snapshotUnavailable?{snapshotUnavailable:true as const}:{}),
    ...(description?.label?{stage:`正在${description.label}`}:{}),
    ...(saved.intake&&liveProgress?{intake:{...saved.intake,progress:liveProgress}}:{}),
    generationProgress:{...progress,phase,activity:current?description?.label:progress.activity,startedAt,timeoutAt,
@@ -673,6 +750,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
    ${supersededSql()} AS superseded,${job.kind===landscapePrintKind?landscapePrintHiddenSql():`NOT (${visibleStory})`} AS deleted
    FROM story_rows stories WHERE id=? AND user_id=?`,job.session_id,job.owner_id);
   if(!row||!this.parsed(row))return 'obsolete';
+  if(this.cliBlocks(job))return 'yield';
   const {doc}=this.parsed(row)!;
   const discover=job.kind==='discover',landscape=job.kind===landscapePrintKind;
   const print=landscape?currentLandscapePrint(doc):undefined;
@@ -706,7 +784,7 @@ export class ReaderProductionCoordinator implements ReaderProduction{
  }
 
  private async canRun(job:ProductionJob){
-  if(this.options.targetSessionId&&job.session_id!==this.options.targetSessionId||this.options.stopBeforeImages&&(job.pool==='image'||job.kind===landscapePrintKind))return false;
+  if(this.cliBlocks(job)||this.options.targetSessionId&&job.session_id!==this.options.targetSessionId||this.options.stopBeforeImages&&(job.pool==='image'||job.kind===landscapePrintKind))return false;
   const row=await this.candidateRow(job);
   if(!row)throw new ReaderError(404,'制作任务的故事记录不可用。');
   if(job.kind===landscapePrintKind){
@@ -1032,7 +1110,13 @@ export class ReaderProductionCoordinator implements ReaderProduction{
   await this.queue.pump();
  }
  stop(){this.stopping=true;this.queue.stop();clearInterval(this.timer);for(const search of this.searches.values())search.controller.abort();}
- get busy(){return !!this.ticking||this.queue.busy||!!this.provider.discoveryBusy?.();}
+ // 维护只暂停新领取，已领取的任务继续按既有授权发送和保存。
+ suspendDispatch(){
+  this.dispatchPaused=true;
+  return ()=>{this.dispatchPaused=false;this.wake();};
+ }
+ get activeWork(){return this.queue.tasks.size>0||this.searches.size>0||this.imageReads.size>0||!!this.provider.discoveryBusy?.();}
+ get busy(){return !!this.ticking||this.queue.busy||this.activeWork;}
  async close(){
   this.stop();
   if(this.scheduled){clearImmediate(this.scheduled);this.scheduled=undefined;}

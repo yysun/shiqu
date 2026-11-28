@@ -290,7 +290,7 @@ test('preview refuses a pending upgrade without migrating the library',async t=>
  }finally{db.close();}
 });
 
-test('real CLI subcommands initialize/inspect/export diagnostics with one JSON stdout and no network listener', {...heavy,timeout:30000},async t=>{
+test('real CLI keeps a single JSON receipt without listening in the caller or using its external fetch', {...heavy,timeout:30000},async t=>{
  const f=await startupFixture(t),source=new URL('../server/cli.ts',import.meta.url).href,directory=path.join(f.root,'headless-library');
  async function cli(args){
   const code=`import net from 'node:net';net.Server.prototype.listen=()=>{throw Error('LISTEN_FORBIDDEN')};globalThis.fetch=async()=>{throw Error('NETWORK_FORBIDDEN')};const {runCli}=await import(${JSON.stringify(source)});await runCli(process.argv[1],process.argv.slice(2));`;

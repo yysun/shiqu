@@ -177,7 +177,8 @@ test('relocated desktop starts and invokes its bundled CLI without system npm', 
  const status=run.output().trim().split('\n').map(line=>JSON.parse(line)).find(value=>value.agentSkill);assert.equal(status.agentSkill.status,'installed');assert.equal((await fetch(status.url)).status,200);
  const filename=path.join(path.dirname(skill),'.shiqu-runtime.json'),record=JSON.parse(await readFile(filename,'utf8')),state=JSON.parse(await readFile(path.join(path.dirname(skill),'.shiqu-skill.json'),'utf8'));
  assert.deepEqual(record.command,[await realpath(binary),await realpath(cli)]);assert.equal(createHash('sha256').update(await readFile(filename)).digest('hex'),state.runtimeSha256);
- const busy=command(['stories','list','--data-dir',library],...record.command);assert.equal(JSON.parse(busy.stdout).error.code,'LIBRARY_BUSY');
+ const shared=command(['stories','list','--data-dir',library],...record.command);assert.equal(shared.status,0,shared.stderr);assert.deepEqual(JSON.parse(shared.stdout).data,[]);
+ const missing=command(['run',crypto.randomUUID(),'--data-dir',library],...record.command);assert.equal(JSON.parse(missing.stdout).error.details.status,404);
  await run.stop();
  for(const args of [['catalog'],['stories','list','--data-dir',library]]){const result=command(args,...record.command);assert.equal(result.status,0,result.stderr);assert.equal(JSON.parse(result.stdout).ok,true);}
  const metadata=await readFile(filename,'utf8');run=await start('start');await until(()=>run.output().includes('"agentSkill"')||run.child.exitCode!==null);assert.equal(run.child.exitCode,null,run.errors());assert.equal(await readFile(filename,'utf8'),metadata);await run.stop();
