@@ -106,7 +106,7 @@ export async function startCliService(root:string,directory:string,runtime:Runti
    return new Response(signature(owner.id,'server:'+challenge.data),{headers:{'Cache-Control':'no-store'}});
   }
   if(!matches(req.headers.get('authorization')||'','Bearer '+owner.id))return new Response(null,{status:404});
-  if(peer.rawPath==='/desktop'&&req.method==='POST'&&runtime.desktop){
+  if(peer.rawPath==='/lifecycle'&&req.method==='POST'&&runtime.desktop){
    const raw=await req.text(),parsed=desktopRequest.safeParse(raw.length<=20000?JSON.parse(raw):null);
    if(!parsed.success)return new Response(null,{status:400});
    return Response.json(await runtime.desktop(parsed.data,peer),{headers:{'Cache-Control':'no-store'}});
@@ -298,7 +298,7 @@ export async function requestDesktopService(owner:Owner,request:DesktopRequest,s
  try{
   const service=await identify(owner,agent,signal);
   if(!service)return;
-  const response=await sendHttp(service.url,'/desktop','POST',agent,signal,{key:owner.id,socket:service.socket,body:JSON.stringify(request)});
+  const response=await sendHttp(service.url,'/lifecycle','POST',agent,signal,{key:owner.id,socket:service.socket,body:JSON.stringify(request)});
   if(response.statusCode!==200){response.destroy();return;}
   let value='';
   response.setEncoding('utf8');
